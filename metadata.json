@@ -1,0 +1,11 @@
+{
+  "name": "Remix: GymMaster Pro (backup)",
+  "description": "Hệ thống quản lý phòng gym chuyên nghiệp: Hội viên, Gói tập, Lịch trình và Thanh toán.",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": [
+    "Firebase",
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
