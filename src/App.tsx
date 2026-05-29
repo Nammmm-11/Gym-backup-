@@ -55,6 +55,7 @@ import {
   Sparkles,
   Minus,
   ArrowRight,
+  ArrowLeft,
   FileText,
   Clock,
   AlertCircle,
@@ -67,9 +68,13 @@ import {
   Send,
   KeyRound,
   UserCheck,
+  QrCode,
+  Maximize,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
+import jsQR from "jsqr";
 import CommunicationPanel from "./components/CommunicationPanel";
+import ServiceReportView from "./components/ServiceReportView";
 import {
   AreaChart,
   Area,
@@ -467,6 +472,7 @@ const translations: Record<string, any> = {
     overview: "TỔNG QUAN HỆ THỐNG",
     membersList: "DANH SÁCH HỘI VIÊN",
     staffReport: "BÁO CÁO NHÂN VIÊN QUẦY",
+     serviceReport: "THỐNG KÊ DỊCH VỤ",
     financeTitle: "QUẢN LÝ TÀI CHÍNH",
     packagesTitle: "CẤU HÌNH GÓI TẬP",
     cancelConfirmTitle: "HỦY QUÁ TRÌNH?",
@@ -747,6 +753,7 @@ const translations: Record<string, any> = {
     overview: "SYSTEM OVERVIEW",
     membersList: "MEMBERS LIST",
     staffReport: "STAFF REPORT",
+     serviceReport: "SERVICE REPORT",
     financeTitle: "FINANCE MANAGEMENT",
     packagesTitle: "PACKAGE CONFIG",
     cancelConfirmTitle: "CANCEL PROCESS?",
@@ -1093,6 +1100,7 @@ const translations: Record<string, any> = {
     overview: "系统概况",
     membersList: "会员列表",
     staffReport: "员工报告",
+     serviceReport: "服务统计",
     financeTitle: "财务管理",
     packagesTitle: "课程包配置",
     cancelConfirmTitle: "取消流程？",
@@ -1413,7 +1421,7 @@ export default function App() {
            u.email?.toLowerCase().endsWith("@fit.com") ||
            u.fullName?.toLowerCase().endsWith("@fit.com");
   };
-  const [activeTab, setActiveTab] = useState<"dashboard" | "members" | "pt" | "staff" | "pos" | "treasury" | "memberSales" | "invoice-sales" | "invoice-member" | "invoice-expiring" | "invoice-expired" | "facilities" | "maintenance" | "evaluations" | "packages" | "memberPortal" | "finance" | "memberAccounts" | "settings" | "invoices" | "aiAnalytics" | "communication" | "staffReport">("dashboard");
+  const [activeTab, setActiveTab] = useState<"dashboard" | "members" | "pt" | "staff" | "pos" | "treasury" | "memberSales" | "invoice-sales" | "invoice-member" | "invoice-expiring" | "invoice-expired" | "facilities" | "maintenance" | "evaluations" | "packages" | "memberPortal" | "finance" | "memberAccounts" | "settings" | "invoices" | "aiAnalytics" | "communication" | "staffReport" | "serviceReport">("dashboard");
   const [invoiceSubTab, setInvoiceSubTab] = useState<"sales" | "member" | "expiring" | "expired">("sales");
   const [openActionMenuId, setOpenActionMenuId] = useState<number | null>(null);
 
@@ -1458,8 +1466,15 @@ export default function App() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isPkgModalOpen, setIsPkgModalOpen] = useState(false);
   const [isCheckinModalOpen, setIsCheckinModalOpen] = useState(false);
+  const [isDigitalCardOpen, setIsDigitalCardOpen] = useState(false);
+  const [zoomedCheckinQrMember, setZoomedCheckinQrMember] = useState<Member | null>(null);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
-  const [profileActiveTab, setProfileActiveTab] = useState<"training" | "payment" | "review">("training");
+  const [profileActiveTab, setProfileActiveTab] = useState<"training" | "payment" | "renew" | "review">("training");
+  const [renewFormPackage, setRenewFormPackage] = useState<string>("");
+  const [renewFormPaymentMethod, setRenewFormPaymentMethod] = useState<string>("Tiền mặt");
+  const [renewFormDiscount, setRenewFormDiscount] = useState<number>(0);
+  const [renewFormStaff, setRenewFormStaff] = useState<string>("");
+  const [renewFormPaymentDate, setRenewFormPaymentDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [isStaffModalOpen, setIsStaffModalOpen] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncLogs, setSyncLogs] = useState<string[]>([]);
@@ -1474,6 +1489,14 @@ export default function App() {
   const [isRevenueModalOpen, setIsRevenueModalOpen] = useState(false);
   const [editingPkgId, setEditingPkgId] = useState<number | null>(null);
   const [checkinSearchTerm, setCheckinSearchTerm] = useState("");
+  const [checkinModalActiveTab, setCheckinModalActiveTab] = useState<'qr' | 'member' | 'staff'>('qr');
+  const [qrCodeInput, setQrCodeInput] = useState('');
+  const [scanSuccessMessage, setScanSuccessMessage] = useState<any | null>(null);
+  const [scanErrorMessage, setScanErrorMessage] = useState<string | null>(null);
+  const [staffCheckinSearchTerm, setStaffCheckinSearchTerm] = useState('');
+  const [isMemberSelfScannerOpen, setIsMemberSelfScannerOpen] = useState(false);
+  const [selfScanStep, setSelfScanStep] = useState<'idle' | 'scanning' | 'success' | 'error'>('idle');
+  const [selfScanError, setSelfScanError] = useState('');
   const [selectedMember, setSelectedMember] = useState<Member | null>(null);
   const [memberHistory, setMemberHistory] = useState<Checkin[]>([]);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -1491,6 +1514,9 @@ export default function App() {
   const [isSubmittingReview, setIsSubmittingReview] = useState(false);
   const [ratingFilter, setRatingFilter] = useState<number | null>(null);
   const [isChatOpen, setIsChatOpen] = useState(false);
+  const [serviceStartDate, setServiceStartDate] = useState("2026-05-01");
+  const [serviceEndDate, setServiceEndDate] = useState("2026-05-17");
+  const [isSyncingPackages, setIsSyncingPackages] = useState(false);
   const [chatMessages, setChatMessages] = useState<{ role: string; text: string }[]>([]);
   const [chatInput, setChatInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
@@ -1832,6 +1858,9 @@ export default function App() {
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
   const videoRef = React.useRef<HTMLVideoElement>(null);
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
+  const scanRequestRef = React.useRef<number | null>(null);
+  const lastScannedCodeRef = React.useRef<string>("");
+  const lastScannedTimeRef = React.useRef<number>(0);
 
   const startCamera = async () => {
     try {
@@ -1857,6 +1886,66 @@ export default function App() {
     }
     setIsCameraActive(false);
   };
+
+  useEffect(() => {
+    if (isCheckinModalOpen) {
+      startCamera();
+    } else {
+      stopCamera();
+    }
+  }, [isCheckinModalOpen]);
+
+  // Real-time QR Code scanning loop using jsQR on the video stream
+  useEffect(() => {
+    let active = true;
+    const scanLoop = () => {
+      if (!active) return;
+      
+      if (isCheckinModalOpen && isCameraActive && checkinModalActiveTab === 'qr' && videoRef.current) {
+        const video = videoRef.current;
+        if (video.readyState === video.HAVE_ENOUGH_DATA) {
+          const width = video.videoWidth;
+          const height = video.videoHeight;
+          const tempCanvas = document.createElement("canvas");
+          tempCanvas.width = width;
+          tempCanvas.height = height;
+          const ctx = tempCanvas.getContext("2d");
+          if (ctx) {
+            ctx.drawImage(video, 0, 0, width, height);
+            const imageData = ctx.getImageData(0, 0, width, height);
+            const code = jsQR(imageData.data, imageData.width, imageData.height, {
+              inversionAttempts: "dontInvert",
+            });
+            if (code && code.data) {
+              const scannedValue = code.data;
+              const now = Date.now();
+              // Prevent duplicate scanning of the same QR code within 3.5 seconds
+              const isDuplicate = scannedValue === lastScannedCodeRef.current && (now - lastScannedTimeRef.current < 3500);
+              
+              if (!isDuplicate && !scanSuccessMessage && !scanErrorMessage) {
+                lastScannedCodeRef.current = scannedValue;
+                lastScannedTimeRef.current = now;
+                processQRScan(scannedValue);
+              }
+            }
+          }
+        }
+      }
+      scanRequestRef.current = requestAnimationFrame(scanLoop);
+    };
+
+    if (isCameraActive && checkinModalActiveTab === 'qr') {
+      scanRequestRef.current = requestAnimationFrame(scanLoop);
+    }
+
+    return () => {
+      active = false;
+      if (scanRequestRef.current) {
+        cancelAnimationFrame(scanRequestRef.current);
+        scanRequestRef.current = null;
+      }
+    };
+  }, [isCameraActive, checkinModalActiveTab, scanSuccessMessage, scanErrorMessage, isCheckinModalOpen]);
 
   const capturePhoto = () => {
     if (videoRef.current && canvasRef.current) {
@@ -1913,15 +2002,13 @@ export default function App() {
       fetchData();
       setNewMember((prev) => ({ ...prev, createdBy: user.username }));
       
-      // Auto refresh data every 30 seconds for non-member roles
-      let interval: any;
-      if (user.role === "ADMIN" || user.role === "STAFF") {
-        interval = setInterval(() => {
-          fetchData();
-        }, 30000);
-      }
+      // Auto-synchronize dataset every 15 seconds for all logged-in users (Admin, Staff, and Members)
+      // so that whatever occurs on the management interface aligns perfectly with the member's device in real-time
+      const interval = setInterval(() => {
+        fetchData();
+      }, 15000);
       return () => {
-        if (interval) clearInterval(interval);
+        clearInterval(interval);
       };
     }
   }, [user]);
@@ -1932,6 +2019,8 @@ export default function App() {
       isModalOpen || 
       isPkgModalOpen || 
       isCheckinModalOpen || 
+      isDigitalCardOpen || 
+      zoomedCheckinQrMember !== null ||
       isProfileModalOpen || 
       isStaffModalOpen || 
       isDeletedModalOpen || 
@@ -1961,12 +2050,14 @@ export default function App() {
     isModalOpen, 
     isPkgModalOpen, 
     isCheckinModalOpen, 
+    isDigitalCardOpen, 
+    zoomedCheckinQrMember,
     isProfileModalOpen, 
     isStaffModalOpen, 
     isDeletedModalOpen, 
     isEditModalOpen, 
     isSidebarOpen, 
-    isProductModalOpen, 
+    isProductModalOpen,  
     isTransactionModalOpen, 
     isPTModalOpen, 
     isPTDetailModalOpen, 
@@ -2273,10 +2364,92 @@ export default function App() {
       });
 
       if (res.ok) {
+        const data = await res.json();
         addNotification(`Gia hạn thành công gói tập [${pkgName}] cho hội viên ${member.fullName}!`);
+        if (data.member) {
+          setMembers(prev => prev.map(m => m.id === data.member.id ? data.member : m));
+          if (selectedMember && selectedMember.id === data.member.id) {
+            setSelectedMember(data.member);
+          }
+          if (user && user.role === "MEMBER" && user.id === data.member.id) {
+            setUser(prev => prev ? { ...prev, ...data.member } : null);
+          }
+        }
         setIsRenewSelectModalOpen(false);
         setRenewingMember(null);
         fetchData();
+      } else {
+        const error = await res.json();
+        addNotification(error.message || "Gia hạn thất bại", "error");
+      }
+    } catch (err) {
+      addNotification("Lỗi kết nối máy chủ", "error");
+    }
+  };
+
+  const getCalculatedExpiryDate = (startDateStr: string, pkgName: string) => {
+    if (!startDateStr || !pkgName) return "--/--/----";
+    const pkg = packages.find(p => p.name === pkgName);
+    if (!pkg) return "--/--/----";
+    const duration = pkg.duration || "1 Tháng";
+    
+    const parts = startDateStr.split('-');
+    if (parts.length !== 3) return "--/--/----";
+    const year = parseInt(parts[0]);
+    const month = parseInt(parts[1]) - 1;
+    const day = parseInt(parts[2]);
+    
+    const date = new Date(year, month, day);
+    const num = parseInt(duration) || 1;
+    if (duration.includes("Tháng")) {
+      date.setMonth(date.getMonth() + num);
+    } else if (duration.includes("Năm")) {
+      date.setFullYear(date.getFullYear() + num);
+    } else if (duration.includes("Ngày")) {
+      date.setDate(date.getDate() + num);
+    } else {
+      date.setMonth(date.getMonth() + 1);
+    }
+    
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  };
+
+  const handleRenewFromProfileTab = async () => {
+    if (!selectedMember) return;
+    if (!renewFormPackage) {
+      addNotification("Vui lòng chọn gói tập để gia hạn", "error");
+      return;
+    }
+    try {
+      const res = await fetch("/api/members/renew", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          memberId: selectedMember.id,
+          packageName: renewFormPackage,
+          paymentMethod: renewFormPaymentMethod,
+          discount: renewFormDiscount,
+          startDate: renewFormPaymentDate,
+          createdBy: renewFormStaff || user?.username || 'Hệ thống'
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        addNotification(`Gia hạn gói tập [${renewFormPackage}] thành công!`);
+        if (data.member) {
+          setSelectedMember(data.member);
+          setMembers(prev => prev.map(m => m.id === data.member.id ? data.member : m));
+        }
+        setProfileActiveTab("payment");
+        fetchData();
+        const resSales = await fetch(`/api/members/${selectedMember.id}/sales`);
+        if (resSales.ok) {
+          setMemberPaymentHistory(await resSales.json());
+        }
       } else {
         const error = await res.json();
         addNotification(error.message || "Gia hạn thất bại", "error");
@@ -2504,6 +2677,15 @@ export default function App() {
       const evaluationsData = await responses[15].json();
 
       setMembers(membersData);
+
+      // Real-time synchronization: If current logged-in user is a MEMBER, sync their local state with 
+      // the updated members master table to apply any premium renewals/status changes instantly
+      if (user && user.role === "MEMBER") {
+        const foundMember = membersData.find((m: any) => m.id === user.id);
+        if (foundMember) {
+          setUser(prev => prev ? { ...prev, ...foundMember } : null);
+        }
+      }
       setStats(statsData);
       setPackages(pkgsData);
       setCheckins(checkinsData);
@@ -2542,6 +2724,11 @@ export default function App() {
     setSelectedMember(member);
     setIsProfileModalOpen(true);
     setProfileActiveTab("training");
+    setRenewFormPackage(member.package || "");
+    setRenewFormPaymentMethod("Tiền mặt");
+    setRenewFormDiscount(0);
+    setRenewFormStaff(member.createdBy || user?.username || "");
+    setRenewFormPaymentDate(new Date().toISOString().split('T')[0]);
     try {
       // Fetch training history
       const resHistory = await fetch(`/api/members/${member.id}/history`);
@@ -2865,6 +3052,130 @@ export default function App() {
       }
     } catch (error) {
       addNotification(t('systemError'), "error");
+    }
+  };
+
+  const playBeep = () => {
+    try {
+      const gX = (window as any).AudioContext || (window as any).webkitAudioContext;
+      if (!gX) return;
+      const ctx = new gX();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(1200, ctx.currentTime);
+      gain.gain.setValueAtTime(0.3, ctx.currentTime);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.12);
+    } catch (e) {
+      console.log("Audio play failed:", e);
+    }
+  };
+
+  const processQRScan = async (qrValue: string) => {
+    setScanErrorMessage(null);
+    setScanSuccessMessage(null);
+    
+    // Play audio beep first
+    playBeep();
+
+    const sanitized = qrValue.trim().toUpperCase();
+    if (sanitized.startsWith("MEM_") || /^\d+$/.test(sanitized)) {
+      // It is a member checkin
+      const memberIdStr = sanitized.replace("MEM_", "");
+      const memberId = parseInt(memberIdStr, 10);
+      const member = members.find(m => m.id === memberId);
+      
+      if (!member) {
+        setScanErrorMessage(lang === 'vi' ? "Mã QR Hội viên không hợp lệ hoặc không tìm thấy hội viên!" : "Invalid Member QR or member not found!");
+        return;
+      }
+
+      try {
+        const res = await fetch("/api/checkin", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ memberId }),
+        });
+        
+        if (res.ok) {
+          const newCheckin = await res.json();
+          // Update local state list
+          setCheckins(prev => [newCheckin, ...prev]);
+          addNotification(t('checkinSuccess'));
+          
+          setScanSuccessMessage({
+            type: "member",
+            title: lang === 'vi' ? "ĐÃ CHECK-IN HỘI VIÊN" : "MEMBER CHECKED-IN",
+            name: member.fullName,
+            id: member.id,
+            phone: member.phone,
+            time: new Date().toLocaleTimeString(lang === 'vi' ? "vi-VN" : "en-US"),
+            detail: `${lang === 'vi' ? 'Gói tập' : 'Package'}: ${member.package} | ${lang === 'vi' ? 'Hạn dùng' : 'Expiry'}: ${new Date(member.expiryDate).toLocaleDateString()}`,
+            avatar: member.avatar
+          });
+          
+          fetchData(); // Refresh overall stats
+        } else {
+          const errData = await res.json();
+          setScanErrorMessage(errData.message || (lang === 'vi' ? "Đã có lỗi xảy ra khi check-in" : "Check-in failed"));
+        }
+      } catch (error) {
+        setScanErrorMessage(lang === 'vi' ? "Lỗi máy chủ kết nối" : "System connection error");
+      }
+    } else if (sanitized.startsWith("STAFF_")) {
+      // It is a staff checkin
+      const staffIdStr = sanitized.replace("STAFF_", "");
+      const staffId = parseInt(staffIdStr, 10);
+      const staffMem = staffMembers.find(s => s.id === staffId);
+      
+      if (!staffMem) {
+        setScanErrorMessage(lang === 'vi' ? "Mã QR Nhân sự không hợp lệ hoặc không tồn tại!" : "Invalid Staff QR or staff not found!");
+        return;
+      }
+
+      // Check attendance logs for this staff for today
+      const today = new Date().toISOString().split('T')[0];
+      const existingInLog = attendance.find(l => l.staffId === staffId && l.date === today && !l.checkOut);
+      const type = existingInLog ? "checkout" : "checkin";
+
+      try {
+        const res = await fetch(`/api/attendance/${type}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ staffId }),
+        });
+        
+        if (res.ok) {
+          addNotification(t('success'));
+          
+          setScanSuccessMessage({
+            type: "staff",
+            title: type === "checkin" 
+              ? (lang === 'vi' ? "NHÂN VIÊN VÀO CA (CHECK-IN)" : "STAFF CLOCK-IN")
+              : (lang === 'vi' ? "NHÂN VIÊN TAN CA (CHECK-OUT)" : "STAFF CLOCK-OUT"),
+            name: staffMem.fullName,
+            id: staffMem.id,
+            phone: staffMem.phoneNumber,
+            time: new Date().toLocaleTimeString(lang === 'vi' ? "vi-VN" : "en-US"),
+            detail: `${lang === 'vi' ? 'Chức vụ' : 'Position'}: ${staffMem.position.toUpperCase()} | ${lang === 'vi' ? 'Vai trò' : 'Role'}: ${staffMem.role}`,
+            statusText: type === "checkin" 
+              ? (lang === 'vi' ? "Đã ghi nhận giờ vào ca thành công" : "Shift clock-in registered successfully")
+              : (lang === 'vi' ? "Đã chấm giờ tan ca thành công" : "Shift clock-out successful")
+          });
+          
+          fetchData(); // Refresh all staff details / logs
+        } else {
+          const errData = await res.json();
+          setScanErrorMessage(errData.message || (lang === 'vi' ? "Đã có lỗi xảy ra khi chấm công" : "Attendance logging failed"));
+        }
+      } catch (error) {
+        setScanErrorMessage(lang === 'vi' ? "Lỗi kết nối máy chủ" : "System connection error");
+      }
+    } else {
+      setScanErrorMessage(lang === 'vi' ? "Không nhận diện được định dạng QR Code. Vui lòng quét MEM_ hoặc STAFF_ code!" : "Unrecognized QR Code. Please scan MEM_ or STAFF_ codes!");
     }
   };
 
@@ -3822,6 +4133,7 @@ export default function App() {
                   subItems: [
                     { id: "memberSales", label: t('memberSales'), icon: Users },
                     { id: "staffReport", label: t('staffReport'), icon: BarChart3 },
+                    { id: "serviceReport", label: t('serviceReport'), icon: PieChartIcon, role: "ADMIN" },
                     { id: "finance", label: t('finance'), icon: BarChart3, role: "ADMIN" },
                     { id: "treasury", label: t('treasury'), icon: Wallet },
                   ]
@@ -4061,6 +4373,7 @@ export default function App() {
                       subItems: [
                         { id: "memberSales", label: t('memberSales'), icon: Users },
                         { id: "staffReport", label: t('staffReport'), icon: BarChart3 },
+                        { id: "serviceReport", label: t('serviceReport'), icon: PieChartIcon, role: "ADMIN" },
                         { id: "finance", label: t('finance'), icon: BarChart3, role: "ADMIN" },
                         { id: "treasury", label: t('treasury'), icon: Wallet },
                       ]
@@ -4321,6 +4634,8 @@ export default function App() {
                       ? t('finance')
                     : activeTab === "staffReport"
                       ? "BÁO CÁO NHÂN VIÊN QUẦY"
+                    : activeTab === "serviceReport"
+                      ? "THỐNG KÊ DỊCH VỤ"
                       : t('settings')}
           </motion.div>
         </AnimatePresence>
@@ -4358,6 +4673,8 @@ export default function App() {
                       ? t('finance')
                     : activeTab === "staffReport"
                       ? "BÁO CÁO DOANH THU NHÂN VIÊN QUẦY"
+                    : activeTab === "serviceReport"
+                      ? "THỐNG KÊ DỊCH VỤ"
                     : activeTab === "memberSales"
                       ? t('memberSales')
                     : activeTab === "evaluations"
@@ -4558,19 +4875,69 @@ export default function App() {
                 {/* QR Entry - Bento 2 */}
                 <div className="bg-zinc-900 border border-white/5 rounded-[2.5rem] p-8 flex flex-col items-center justify-center text-center group hover:border-[#CCFF00]/30 transition-all shadow-xl relative overflow-hidden">
                   <div className="absolute inset-0 bg-gradient-to-br from-[#CCFF00]/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-                  <p className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.2em] mb-6 italic relative z-10">{t('qrCheckin')}</p>
-                  <div className="w-40 h-40 bg-white p-3 rounded-[2rem] shadow-2xl relative z-10 transform group-hover:scale-105 transition-transform">
+                  <p className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.2em] mb-4 italic relative z-10">{t('qrCheckin')}</p>
+                  
+                  <div 
+                    onClick={() => setIsDigitalCardOpen(true)}
+                    className="w-36 h-36 bg-white p-2.5 rounded-[1.8rem] shadow-2xl relative z-10 transform group-hover:scale-105 hover:rotate-2 transition-all cursor-pointer border-2 border-transparent hover:border-[#CCFF00]"
+                    title={lang === "vi" ? "Nhấp để mở rộng thẻ" : "Click to expand card"}
+                  >
                     <img 
                       src={`https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=MEM_${user.id}`} 
-                      className="w-full h-full mix-blend-multiply opacity-90" 
+                      className="w-full h-full mix-blend-multiply opacity-90 animate-pulse" 
                     />
                   </div>
-                  <div className="mt-6 flex flex-col items-center gap-2 relative z-10">
-                    <div className="flex gap-1">
-                      {[1,2,3].map(i => <div key={i} className="w-1.5 h-1.5 rounded-full bg-[#CCFF00]" />)}
-                    </div>
-                    <p className="text-[9px] font-mono text-zinc-600 uppercase tracking-[0.2em] max-w-[140px] leading-relaxed">
-                      MÃ ĐỊNH DANH DUY NHẤT CỦA BẠN
+                  
+                  <button 
+                    type="button"
+                    onClick={() => setIsDigitalCardOpen(true)}
+                    className="mt-2.5 text-[8.5px] font-mono font-black uppercase text-[#CCFF00] hover:underline cursor-pointer z-10"
+                  >
+                    [ {lang === 'vi' ? 'NHẤN ĐỂ PHÓNG TO MÃ QR' : 'TAP TO EXPAND QR PASS'} ]
+                  </button>
+
+                  <div className="mt-4 flex flex-col items-center gap-3 relative z-10 w-full">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsMemberSelfScannerOpen(true);
+                        setSelfScanStep('scanning');
+                        setSelfScanError('');
+                        
+                        // Simulate physical QR scanning latency
+                        setTimeout(async () => {
+                          try {
+                            const res = await fetch("/api/checkin", {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ memberId: user.id }),
+                            });
+                            
+                            playBeep(); // feedback beep
+
+                            if (res.ok) {
+                              const checkinData = await res.json();
+                              setCheckins(prev => [checkinData, ...prev]);
+                              setSelfScanStep('success');
+                              addNotification(t('checkinSuccess'));
+                              fetchData();
+                            } else {
+                              const errData = await res.json();
+                              setSelfScanStep('error');
+                              setSelfScanError(errData.message || "Check-in failed");
+                            }
+                          } catch (e) {
+                            setSelfScanStep('error');
+                            setSelfScanError("Kết nối máy chủ bị ảnh hưởng");
+                          }
+                        }, 1600);
+                      }}
+                      className="w-full bg-[#CCFF00] hover:bg-white text-black font-black py-2.5 rounded-xl text-[9px] uppercase tracking-widest transition-all duration-300 shadow-lg cursor-pointer"
+                    >
+                      {lang === 'vi' ? 'TỰ QUÉT ĐIỂM DANH QUA CỔNG' : 'SELF-SCAN ENTRY GATE'}
+                    </button>
+                    <p className="text-[8px] font-mono text-zinc-600 uppercase tracking-[0.2em] max-w-[170px] leading-relaxed">
+                      MÃ QR CHECK-IN SỐ ID-#{user.id.toString().padStart(4, '0')}
                     </p>
                   </div>
                 </div>
@@ -5721,6 +6088,48 @@ export default function App() {
                   </motion.button>
                 )}
 
+                {checkIsAdminLike(user) && (
+                  <motion.button
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    disabled={isSyncingPackages}
+                    onClick={async () => {
+                      setIsSyncingPackages(true);
+                      try {
+                        const res = await fetch("/api/packages/sync", { method: "POST" });
+                        if (res.ok) {
+                          const data = await res.json();
+                          addNotification(
+                            `Đã đồng bộ thành công! Cập nhật ${data.stats?.updatedMembersCount || 0} hội viên và ${data.stats?.updatedSalesCount || 0} hóa đơn tương ứng với các thay đổi của gói tập.`,
+                            "success"
+                          );
+                          fetchData();
+                        } else {
+                          addNotification("Có lỗi xảy ra khi đồng bộ gói tập", "error");
+                        }
+                      } catch {
+                        addNotification("Lỗi kết nối máy chủ", "error");
+                      } finally {
+                        setIsSyncingPackages(false);
+                      }
+                    }}
+                    className="flex flex-col items-center justify-center p-6 bg-zinc-950 hover:bg-zinc-900 rounded-[2rem] text-[#CCFF00] border-4 border-dashed border-[#CCFF00]/50 hover:border-[#CCFF00] shadow-2xl h-[220px] md:h-[320px] group transition-all relative overflow-hidden cursor-pointer"
+                  >
+                    <div className="absolute -bottom-6 -right-6 text-[6rem] md:text-[10rem] font-black text-white/[0.012] italic pointer-events-none group-hover:-translate-y-3 transition-transform">
+                      SYNC
+                    </div>
+                    <div className="w-14 h-14 md:w-20 md:h-20 bg-zinc-900 border border-white/10 rounded-2xl md:rounded-3xl flex items-center justify-center mb-4 md:mb-6 shadow-2xl group-hover:rotate-180 transition-transform duration-700 relative z-10">
+                      <RefreshCw className={`w-6 h-6 md:w-10 md:h-10 text-[#CCFF00] ${isSyncingPackages ? 'animate-spin' : ''}`} />
+                    </div>
+                    <span className="text-xl md:text-2xl font-black italic uppercase tracking-tighter leading-none text-center relative z-10 text-white group-hover:text-[#CCFF00] transition-colors">
+                      {isSyncingPackages ? "ĐANG ĐỒNG BỘ..." : "ĐỒNG BỘ GÓI TẬP"}
+                    </span>
+                    <p className="text-[8px] md:text-[9.5px]/relaxed font-medium mt-2 md:mt-4 text-zinc-500 tracking-[0.02em] relative z-10 text-center px-4 max-w-xs">
+                      Cập nhật các thay đổi về tên & đơn giá gói tập đến toàn bộ hội viên đã đăng ký, sổ quỹ hóa đơn & đồ thị phân tích thống kê dịch vụ.
+                    </p>
+                  </motion.button>
+                )}
+
                 {packages.map((pkg) => (
                   <motion.div
                     initial={{ opacity: 0, y: 30 }}
@@ -6012,7 +6421,7 @@ export default function App() {
                             </div>
 
                             {/* Section 3.5: Nhân viên phụ trách */}
-                            {checkIsAdminLike(user) && (
+                            {user?.role === "ADMIN" && (
                               <div className="space-y-0.5 min-w-[150px] lg:max-w-[200px] lg:flex-none">
                                 <span className="text-[7.5px] font-mono text-zinc-500 uppercase tracking-widest block">NV PHỤ TRÁCH</span>
                                 <select
@@ -7465,6 +7874,30 @@ export default function App() {
                 </div>
               </div>
 
+              {/* Target & KPI Policy overview board */}
+              {user?.role === "ADMIN" && (
+                <div className="bg-gradient-to-r from-zinc-950 to-zinc-900 border border-[#CCFF00]/15 rounded-[2rem] p-6 shadow-xl flex flex-col md:flex-row items-center justify-between gap-6">
+                  <div className="space-y-1 text-center md:text-left">
+                    <h4 className="text-xs font-mono text-[#CCFF00] uppercase tracking-[0.2em] italic font-black">CHÍNH SÁCH CHỈ TIÊU & THANG HOA HỒNG DOANH THU</h4>
+                    <p className="text-[10px] text-zinc-400">Hệ thống tính hoa hồng tự động dựa trên tổng doanh thu ký gói hợp đồng hội viên mới tích lũy trong tháng của từng nhân viên</p>
+                  </div>
+                  <div className="grid grid-cols-3 gap-3 w-full md:w-auto min-w-[320px] lg:min-w-[480px]">
+                    <div className="bg-white/[0.02] border border-white/5 rounded-xl p-3 text-center">
+                      <p className="text-[8px] font-mono text-zinc-500 uppercase">Mức 1 (Doanh số ≥ 20Tr)</p>
+                      <p className="text-sm font-black text-[#CCFF00] mt-0.5">Hưởng 5%</p>
+                    </div>
+                    <div className="bg-[#CCFF00]/5 border border-[#CCFF00]/10 rounded-xl p-3 text-center">
+                      <p className="text-[8px] font-mono text-zinc-450 uppercase">Mức 2 (Doanh số ≥ 30Tr)</p>
+                      <p className="text-sm font-black text-[#CCFF00] mt-0.5">Hưởng 10%</p>
+                    </div>
+                    <div className="bg-emerald-500/5 border border-emerald-500/10 rounded-xl p-3 text-center">
+                      <p className="text-[8px] font-mono text-zinc-500 uppercase">Mức 3 (Doanh số ≥ 50Tr)</p>
+                      <p className="text-sm font-black text-emerald-400 mt-0.5">Hưởng 15%</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Main Content Area: Chart and List */}
               <div className="grid grid-cols-12 gap-8">
                 {/* Chart component */}
@@ -7492,33 +7925,94 @@ export default function App() {
                         }))}
                         margin={{ top: 10, right: 10, left: 10, bottom: 5 }}
                       >
+                        <defs>
+                          <linearGradient id="barGradient" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor="#CCFF00" stopOpacity={1} />
+                            <stop offset="100%" stopColor="#CCFF00" stopOpacity={0.15} />
+                          </linearGradient>
+                        </defs>
                         <CartesianGrid strokeDasharray="3 3" stroke="#ffffff05" vertical={false} />
                         <XAxis
                           dataKey="name"
                           axisLine={false}
                           tickLine={false}
-                          tick={{ fill: "#71717a", fontSize: 10, fontWeight: "bold" }}
+                          tick={{ fill: "#a1a1aa", fontSize: 10, fontWeight: "bold" }}
                         />
                         <YAxis
                           axisLine={false}
                           tickLine={false}
-                          tick={{ fill: "#71717a", fontSize: 10, fontWeight: "bold" }}
-                          tickFormatter={(val) => `${(val / 1000000).toFixed(1)}M`}
+                          tick={{ fill: "#a1a1aa", fontSize: 10, fontWeight: "bold" }}
+                          tickFormatter={(val) => `${(val / 1000000).toLocaleString("en-US", { maximumFractionDigits: 1 })}M`}
                         />
                         <Tooltip
-                          contentStyle={{
-                            backgroundColor: "#09090b",
-                            borderColor: "#ffffff10",
-                            borderRadius: "16px",
+                          content={({ active, payload }) => {
+                            if (active && payload && payload.length) {
+                              const data = payload[0].payload;
+                              const rev = data["Doanh thu"] || 0;
+                              const count = data["Số hội viên"] || 0;
+                              const fullName = data.fullName || data.name;
+
+                              // Calculate commission tier
+                              let commPct = 0;
+                              let tierName = "DƯỚI CHỈ TIÊU";
+                              let tierColor = "text-zinc-500 bg-zinc-800/50 border-zinc-800/80";
+                              if (rev >= 50000000) {
+                                commPct = 15;
+                                tierName = "MỨC 3 (ƯU TÚ 15%)";
+                                tierColor = "text-emerald-400 bg-emerald-500/10 border-emerald-500/20";
+                              } else if (rev >= 30000000) {
+                                commPct = 10;
+                                tierName = "MỨC 2 (10%)";
+                                tierColor = "text-[#CCFF00] bg-[#CCFF00]/10 border-[#CCFF00]/20";
+                              } else if (rev >= 20000000) {
+                                commPct = 5;
+                                tierName = "MỨC 1 (5%)";
+                                tierColor = "text-blue-400 bg-blue-500/10 border-blue-500/20";
+                              }
+                              const commAmt = (rev * commPct) / 100;
+
+                              return (
+                                <div className="bg-zinc-950/95 border border-white/10 p-4 rounded-2xl shadow-2xl backdrop-blur-md min-w-[240px] space-y-3">
+                                  <div>
+                                    <p className="text-[8px] font-mono text-zinc-500 uppercase tracking-widest font-bold">Nhân viên phụ trách</p>
+                                    <p className="text-xs font-black text-white uppercase italic tracking-tight">{fullName}</p>
+                                  </div>
+                                  <div className="border-t border-white/5 pt-2.5 space-y-1.5 text-xs">
+                                    <div className="flex justify-between items-center gap-4">
+                                      <span className="text-zinc-500 font-mono text-[9px] uppercase">Doanh thu:</span>
+                                      <span className="font-mono font-black text-[#CCFF00] text-sm">
+                                        {rev.toLocaleString("en-US")}đ
+                                      </span>
+                                    </div>
+                                    <div className="flex justify-between items-center gap-4">
+                                      <span className="text-zinc-500 font-mono text-[9px] uppercase">Hội viên đăng ký:</span>
+                                      <span className="font-mono font-bold text-white text-xs">{count} người</span>
+                                    </div>
+                                    {user?.role === "ADMIN" && (
+                                      <>
+                                        <div className="flex justify-between items-center gap-4">
+                                          <span className="text-zinc-500 font-mono text-[9px] uppercase">Chỉ tiêu đạt mốc:</span>
+                                          <span className={`px-1.5 py-0.5 rounded text-[8px] font-mono font-black border uppercase ${tierColor}`}>
+                                            {tierName}
+                                          </span>
+                                        </div>
+                                        <div className="flex justify-between items-center border-t border-white/5 pt-2 mt-1 gap-4">
+                                          <span className="text-zinc-500 font-mono text-[9px] uppercase font-bold">Hoa hồng ({commPct}%):</span>
+                                          <span className="font-mono font-black text-[#CCFF00] text-sm">
+                                            {commAmt.toLocaleString("en-US")}đ
+                                          </span>
+                                        </div>
+                                      </>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            }
+                            return null;
                           }}
-                          itemStyle={{
-                            color: "#CCFF00",
-                            fontSize: "12px",
-                            fontWeight: "bold",
-                          }}
-                          cursor={{ fill: "rgba(255,255,255,0.02)" }}
+                          cursor={{ fill: "rgba(255,255,255,0.02)", radius: 12 }}
                         />
-                        <Bar dataKey="Doanh thu" fill="#CCFF00" radius={[10, 10, 0, 0]} maxBarSize={60} />
+                        <Bar dataKey="Doanh thu" fill="url(#barGradient)" stroke="#CCFF00" strokeWidth={1} radius={[12, 12, 0, 0]} maxBarSize={48} />
                       </BarChart>
                     </ResponsiveContainer>
                   </div>
@@ -7532,12 +8026,32 @@ export default function App() {
                   <div className="space-y-4 overflow-y-auto max-h-[350px] pr-2 custom-scrollbar flex-1">
                     {kpiData.map((kpi, idx) => {
                       const avgRev = kpi.count > 0 ? kpi.revenue / kpi.count : 0;
+                      const commInfo = (() => {
+                        const rev = kpi.revenue;
+                        let pct = 0;
+                        let tier = "CHƯA ĐẠT";
+                        let color = "bg-zinc-800 text-zinc-400 border-zinc-800";
+                        if (rev >= 50000000) {
+                          pct = 15;
+                          tier = "MỨC 3 (15%)";
+                          color = "bg-emerald-500/10 text-emerald-400 border-emerald-500/20";
+                        } else if (rev >= 30000000) {
+                          pct = 10;
+                          tier = "MỨC 2 (10%)";
+                          color = "bg-[#CCFF00]/10 text-[#CCFF00] border-[#CCFF00]/20";
+                        } else if (rev >= 20000000) {
+                          pct = 5;
+                          tier = "MỨC 1 (5%)";
+                          color = "bg-blue-500/10 text-blue-400 border-blue-500/20";
+                        }
+                        return { pct, amt: (rev * pct) / 100, tier, color };
+                      })();
                       return (
                         <div
                           key={idx}
                           className="bg-white/[0.02] border border-white/5 p-4 rounded-2xl flex flex-col gap-3 group hover:border-[#CCFF00]/20 transition-all duration-300"
                         >
-                          <div className="flex justify-between items-center">
+                          <div className="flex justify-between items-center animate-fade-in">
                             <div className="flex items-center gap-3">
                               <div className="w-8 h-8 rounded-xl bg-zinc-800 flex items-center justify-center font-black text-xs text-[#CCFF00] group-hover:bg-[#CCFF00] group-hover:text-black transition-colors duration-300">
                                 {kpi.fullName.split(" ").pop()?.charAt(0)}
@@ -7549,7 +8063,7 @@ export default function App() {
                             </div>
                             <div className="text-right">
                               <span className="text-sm font-black italic text-[#CCFF00] block">{kpi.revenue.toLocaleString("vi-VN")}đ</span>
-                              <span className="text-[8px] font-mono text-zinc-500 uppercase tracking-widest">Doanh thu tạo</span>
+                              <span className="text-[8px] font-mono text-zinc-455 uppercase tracking-widest">Doanh thu tạo</span>
                             </div>
                           </div>
 
@@ -7563,99 +8077,35 @@ export default function App() {
                               <span className="text-xs font-semibold text-zinc-300">{avgRev.toLocaleString("vi-VN", { maximumFractionDigits: 0 })}đ</span>
                             </div>
                           </div>
+
+                          {user?.role === "ADMIN" && (
+                            <div className="border-t border-white/5 pt-2 flex flex-col gap-1.5 text-xs">
+                              <div className="flex justify-between items-center text-[7.5px] font-mono uppercase tracking-widest text-zinc-500">
+                                <span>Chỉ tiêu đạt mốc</span>
+                                <span className={`px-1.5 py-0.5 rounded border ${commInfo.color} font-black text-[7px]`}>
+                                  {commInfo.tier}
+                                </span>
+                              </div>
+                              <div className="flex justify-between items-center">
+                                <span className="text-[7.5px] font-mono text-zinc-450 uppercase tracking-widest">Hoa hồng tích luỹ</span>
+                                <span className="font-mono text-[#CCFF00] font-black">{commInfo.amt.toLocaleString("vi-VN")}đ</span>
+                              </div>
+                            </div>
+                          )}
                         </div>
                       )
                     })}
                   </div>
                 </div>
               </div>
-
-              {/* Detailed Breakdown section list */}
-              <div className="bg-zinc-950 border border-white/10 rounded-[2.5rem] overflow-hidden shadow-2xl p-8">
-                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
-                  <div>
-                    <h3 className="text-xs font-mono text-zinc-400 uppercase tracking-[0.3em] italic">
-                      CHI TIẾT HỘI VIÊN DO TỪNG NHÂN VIÊN QUẦY ĐĂNG KÝ
-                    </h3>
-                    <p className="text-[9px] font-mono text-zinc-500 uppercase mt-1">
-                      Tra cứu chi tiết danh sách hội viên cụ thể được tạo lập bởi từng nhân viên quầy trong hệ thống
-                    </p>
-                  </div>
-                </div>
-
-                <div className="space-y-8">
-                  {kpiData.map((staffStats) => {
-                    const staffMembersList = members.filter(m => m.createdBy === staffStats.username);
-                    return (
-                      <div key={staffStats.username} className="border border-white/5 bg-white/[0.01] rounded-3xl p-6 space-y-4">
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/5 pb-4">
-                          <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-2xl bg-[#CCFF00]/10 border border-[#CCFF00]/20 flex items-center justify-center text-[#CCFF00]">
-                              <Briefcase className="w-5 h-5" />
-                            </div>
-                            <div>
-                              <h4 className="text-sm font-black text-white uppercase italic tracking-tight">{staffStats.fullName}</h4>
-                              <p className="text-[8px] font-mono text-[#CCFF00] uppercase tracking-[0.2em] font-black">{staffStats.username}</p>
-                            </div>
-                          </div>
-                          <div className="flex gap-4">
-                            <div className="bg-white/5 border border-white/5 px-4 py-2 rounded-2xl text-center">
-                              <span className="text-[8px] font-mono text-zinc-500 uppercase block tracking-wider">Hội viên đăng ký</span>
-                              <span className="text-sm font-black text-white mt-0.5 block">{staffMembersList.length}</span>
-                            </div>
-                            <div className="bg-white/5 border border-white/5 px-4 py-2 rounded-2xl text-center">
-                              <span className="text-[8px] font-mono text-zinc-500 uppercase block tracking-wider">Tổng doanh thu</span>
-                              <span className="text-sm font-black text-[#CCFF00] mt-0.5 block">{staffStats.revenue.toLocaleString("vi-VN")}đ</span>
-                            </div>
-                          </div>
-                        </div>
-
-                        {staffMembersList.length > 0 ? (
-                          <div className="overflow-x-auto custom-scrollbar">
-                            <table className="w-full text-left">
-                              <thead>
-                                <tr className="text-[9px] font-black font-mono text-zinc-500 uppercase tracking-widest border-b border-white/5">
-                                  <th className="pb-3 pl-2">HỘI VIÊN</th>
-                                  <th className="pb-3">MÃ HỘI VIÊN</th>
-                                  <th className="pb-3 text-center">GÓI TẬP ĐĂNG KÝ</th>
-                                  <th className="pb-3 text-right">DOANH THU THỰC TẾ</th>
-                                  <th className="pb-3 text-center">NGÀY ĐĂNG KÝ</th>
-                                  <th className="pb-3 text-right pr-2">TRẠNG THÁI</th>
-                                </tr>
-                              </thead>
-                              <tbody className="divide-y divide-white/[0.02]">
-                                {staffMembersList.map((m) => (
-                                  <tr key={m.id} className="text-xs hover:bg-white/[0.01] transition-colors whitespace-nowrap">
-                                    <td className="py-3 pl-2 font-black text-white uppercase italic">{m.fullName}</td>
-                                    <td className="py-3 font-mono font-bold text-zinc-400">{m.memberCode || `MEM${m.id.toString().padStart(3, '0')}`}</td>
-                                    <td className="py-3 text-center">
-                                      <span className="bg-white/5 border border-white/5 text-[9px] font-black uppercase tracking-wider px-2.5 py-1 rounded-full text-zinc-300">
-                                        {m.package || "Gói tập thử khách"}
-                                      </span>
-                                    </td>
-                                    <td className="py-3 text-right font-black text-[#CCFF00]">{(m.revenue || 0).toLocaleString("vi-VN")}đ</td>
-                                    <td className="py-3 text-center font-mono text-[10px] text-zinc-500 italic">{m.registrationDate || "---"}</td>
-                                    <td className="py-3 text-right pr-2">
-                                      <span className={`text-[8px] font-black px-2 py-0.5 rounded uppercase tracking-wider ${m.status === 'Hoạt động' ? 'bg-[#CCFF00]/15 text-[#CCFF00]' : 'bg-rose-500/15 text-rose-500'}`}>
-                                        {m.status === 'Hoạt động' ? 'Hoạt động' : 'Hết hạn'}
-                                      </span>
-                                    </td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          </div>
-                        ) : (
-                          <div className="py-8 text-center bg-white/[0.01] rounded-2xl border border-dashed border-white/5">
-                            <p className="text-[10px] text-zinc-550 font-black uppercase tracking-wider italic">Nhân viên này chưa thực hiện đăng ký cho hội viên nào</p>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
             </motion.div>
+          ) : activeTab === "serviceReport" ? (
+            <ServiceReportView
+              members={members}
+              packages={packages}
+              lang={lang}
+              onBack={() => setActiveTab("dashboard")}
+            />
           ) : activeTab === "memberSales" ? (
             <motion.div
               initial={{ opacity: 0 }}
@@ -8844,11 +9294,7 @@ export default function App() {
             <motion.div
               className="space-y-6 h-full flex flex-col overflow-hidden px-5 md:px-5"
             >
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 shrink-0">
-                <div>
-                  <h2 className="text-3xl font-black italic uppercase tracking-tighter text-white leading-none">{t('maintenance')}</h2>
-                  <p className="text-zinc-500 text-[10px] font-mono mt-1 uppercase tracking-widest">{t('mgmtSystem')} // SCHEDULE_LOG</p>
-                </div>
+              <div className="flex flex-col md:flex-row md:items-center justify-end gap-4 shrink-0">
                 <button 
                   onClick={() => { setEditingMaintenance(null); setIsMaintenanceModalOpen(true); }}
                   className="flex items-center gap-2 bg-[#CCFF00] text-black px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-[0_10px_20px_rgba(204,255,0,0.1)] hover:scale-105 active:scale-95 transition-all w-fit"
@@ -9022,10 +9468,10 @@ export default function App() {
                     <div className="bg-zinc-950 border border-white/5 rounded-[3rem] p-8">
                       <h3 className="text-xl font-black italic uppercase text-white mb-6 px-2 flex items-center justify-between">
                         DỰ ĐOÁN RỜI BỎ
-                        <span className="text-[10px] font-mono text-zinc-600 tracking-widest">TOP RISK</span>
+                        <span className="text-[10px] font-mono text-[#CCFF00] tracking-widest">TẤT CẢ HỘI VIÊN</span>
                       </h3>
                       <div className="space-y-4 max-h-[600px] overflow-y-auto custom-scrollbar pr-2">
-                        {members.filter(m => m.status === 'Hoạt động').slice(0, 10).map((member) => (
+                        {members.map((member) => (
                           <div key={member.id} className="p-6 bg-white/[0.02] border border-white/5 rounded-2xl group hover:border-[#CCFF00]/20 transition-all">
                             <div className="flex justify-between items-start mb-4">
                               <div className="flex items-center gap-3">
@@ -9923,7 +10369,19 @@ export default function App() {
                             {selectedMember.expiryDate}
                           </span>
                         </div>
-                        {checkIsAdminLike(user) && (
+                        <div className="flex justify-between border-b border-white/5 pb-2.5">
+                          <span className="text-zinc-600 font-mono">NV PHỤ TRÁCH:</span>
+                          <span className="text-white">
+                            {(() => {
+                              if (!selectedMember.createdBy) return "HỆ THỐNG / CHƯA GÁN";
+                              const found = staffMembers.find(
+                                (s) => (s.username || "").toLowerCase() === selectedMember.createdBy.toLowerCase() || (s.fullName || "").toLowerCase() === selectedMember.createdBy.toLowerCase()
+                              );
+                              return found ? found.fullName.toUpperCase() : selectedMember.createdBy.toUpperCase();
+                            })()}
+                          </span>
+                        </div>
+                        {user?.role === "ADMIN" && (
                           <div className="flex flex-col gap-1 px-0.5 pt-1">
                             <span className="text-zinc-600 font-mono text-[7.5px] uppercase tracking-widest block mb-0.5">NHÂN VIÊN PHỤ TRÁCH</span>
                             <select
@@ -9987,8 +10445,7 @@ export default function App() {
                         </button>
                         <button
                           onClick={() => {
-                            setRenewingMember(selectedMember);
-                            setIsRenewSelectModalOpen(true);
+                            setProfileActiveTab("renew");
                           }}
                           className="flex flex-col items-center justify-center gap-2 p-4 bg-[#CCFF00]/10 text-[#CCFF00] border border-[#CCFF00]/20 rounded-xl hover:bg-[#CCFF00]/20 hover:scale-[1.03] transition-all"
                         >
@@ -10078,6 +10535,16 @@ export default function App() {
                       >
                         LỊCH SỬ THANH TOÁN
                       </button>
+                      <button
+                        onClick={() => setProfileActiveTab("renew")}
+                        className={`text-[10px] font-black font-mono uppercase tracking-[0.2em] italic transition-all ${
+                          profileActiveTab === "renew"
+                            ? "text-[#CCFF00] border-b-2 border-[#CCFF00] pb-3 -mb-[14px]"
+                            : "text-zinc-600 hover:text-zinc-400"
+                        }`}
+                      >
+                        GIA HẠN
+                      </button>
                     </div>
 
                     <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar min-h-[400px]">
@@ -10110,7 +10577,7 @@ export default function App() {
                             </div>
                           )}
                         </div>
-                      ) : (
+                      ) : profileActiveTab === "payment" ? (
                         <div className="space-y-2.5">
                           {memberPaymentHistory.length > 0 ? (
                             memberPaymentHistory.map((sale) => (
@@ -10139,8 +10606,182 @@ export default function App() {
                             </div>
                           )}
                         </div>
-                      )}
-                    </div>
+                      ) : (
+                        /* TAB GIA HẠN */
+                        <div className="space-y-6">
+                          <div className="bg-[#121620]/40 border border-[#CCFF00]/10 rounded-2xl p-6 space-y-5">
+                            <h4 className="text-white text-xs font-black uppercase tracking-widest italic flex items-center gap-2">
+                              <span className="w-2 h-2 rounded-full bg-[#CCFF00] animate-pulse" />
+                              CHI TIẾT GÓI GIA HẠN MỚI
+                            </h4>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              {/* Chọn gói tập */}
+                              <div>
+                                <label className="block text-[9px] font-mono text-zinc-500 uppercase tracking-widest mb-1.5 font-bold">
+                                  CHỌN GÓI TẬP:
+                                </label>
+                                <select
+                                  value={renewFormPackage}
+                                  onChange={(e) => setRenewFormPackage(e.target.value)}
+                                  className="w-full bg-zinc-950 border border-white/10 px-3 py-2.5 rounded-xl focus:border-[#CCFF00] outline-none text-xs font-mono uppercase tracking-widest text-white cursor-pointer"
+                                >
+                                  <option value="" className="bg-zinc-950">-- CHỌN GÓI TẬP --</option>
+                                  {packages.map((pkg) => (
+                                    <option key={pkg.id} value={pkg.name} className="bg-[#000000] text-white">
+                                      {pkg.name.toUpperCase()} ({(pkg.price).toLocaleString()}đ)
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+
+                              {/* Phương thức thanh toán */}
+                              <div>
+                                <label className="block text-[9px] font-mono text-zinc-500 uppercase tracking-widest mb-1.5 font-bold">
+                                  PHƯƠNG THỨC THANH TOÁN:
+                                </label>
+                                <select
+                                  value={renewFormPaymentMethod}
+                                  onChange={(e) => setRenewFormPaymentMethod(e.target.value)}
+                                  className="w-full bg-zinc-950 border border-white/10 px-3 py-2.5 rounded-xl focus:border-[#CCFF00] outline-none text-xs text-white cursor-pointer"
+                                >
+                                  <option value="Tiền mặt" className="bg-[#000000]">💵 TIỀN MẶT (CASH)</option>
+                                  <option value="Chuyển khoản" className="bg-[#000000]">🏦 CHUYỂN KHOẢN (BANK TRANSFER)</option>
+                                  <option value="Thẻ tín dụng" className="bg-[#000000]">💳 THẺ TÍN DỤNG (CREDIT CARD)</option>
+                                  <option value="Quét mã QR" className="bg-[#000000]">🔲 QUÉT MÃ QR (QR CODE PAY)</option>
+                                </select>
+                              </div>
+
+                              {/* Ngày đóng tiền */}
+                              <div>
+                                <label className="block text-[9px] font-mono text-zinc-500 uppercase tracking-widest mb-1.5 font-bold">
+                                  NGÀY ĐÓNG TIỀN (NGÀY BẮT ĐẦU):
+                                </label>
+                                <input
+                                  type="date"
+                                  value={renewFormPaymentDate}
+                                  onChange={(e) => setRenewFormPaymentDate(e.target.value)}
+                                  className="w-full bg-zinc-950 border border-white/10 px-3 py-2.5 rounded-xl focus:border-[#CCFF00] outline-none text-xs font-mono text-white cursor-pointer"
+                                  style={{ colorScheme: 'dark' }}
+                                />
+                              </div>
+
+                              {/* Ngày hết hạn (Tự động tính) */}
+                              <div>
+                                <label className="block text-[9px] font-mono text-zinc-500 uppercase tracking-widest mb-1.5 font-bold">
+                                  NGÀY HẾT HẠN (TỰ ĐỘNG - AUTO):
+                                </label>
+                                <div className="w-full bg-zinc-900 border border-white/5 px-3 py-2.5 rounded-xl text-xs font-mono font-bold text-[#CCFF00] select-none">
+                                  {(() => {
+                                    const computedExpiry = getCalculatedExpiryDate(renewFormPaymentDate, renewFormPackage);
+                                    return computedExpiry && computedExpiry !== "--/--/----" 
+                                      ? computedExpiry 
+                                      : "--/--/----";
+                                  })()}
+                                </div>
+                              </div>
+
+                              {/* Giảm giá */}
+                              <div>
+                                <label className="block text-[9px] font-mono text-zinc-500 uppercase tracking-widest mb-1.5 font-bold">
+                                  SỐ TIỀN GIẢM GIÁ (VND):
+                                </label>
+                                <input
+                                  type="text"
+                                  placeholder="0"
+                                  value={renewFormDiscount === 0 ? "" : renewFormDiscount.toLocaleString('en-US')}
+                                  onChange={(e) => {
+                                    const digits = e.target.value.replace(/[^0-9]/g, "");
+                                    setRenewFormDiscount(parseInt(digits) || 0);
+                                  }}
+                                  className="w-full bg-zinc-950 border border-white/10 px-3 py-2.5 rounded-xl focus:border-[#CCFF00] outline-none text-xs font-mono text-white"
+                                />
+                              </div>
+
+                              {/* Nhân viên phụ trách */}
+                              <div>
+                                <label className="block text-[9px] font-mono text-zinc-500 uppercase tracking-widest mb-1.5 font-bold">
+                                  NHÂN VIÊN PHỤ TRÁCH:
+                                </label>
+                                <select
+                                  value={renewFormStaff}
+                                  onChange={(e) => setRenewFormStaff(e.target.value)}
+                                  className="w-full bg-zinc-950 border border-white/10 px-3 py-2.5 rounded-xl focus:border-[#CCFF00] outline-none text-xs uppercase text-white cursor-pointer"
+                                >
+                                  <option value="" className="bg-[#000000]">-- HỆ THỐNG --</option>
+                                  {staffMembers.map((s) => (
+                                    <option key={s.id} value={s.username || s.fullName} className="bg-[#000000]">
+                                      {s.fullName.toUpperCase()} {s.username ? `(${s.username})` : ""}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Thông tin hóa đơn thanh toán */}
+                           <div className="bg-[#CCFF00]/5 border border-[#CCFF00]/20 rounded-2xl p-6 space-y-4">
+                             <p className="text-[10px] font-black text-[#CCFF00] uppercase tracking-widest italic">
+                               HÓA ĐƠN ĐĂNG KÝ GIA HẠN
+                             </p>
+                             <div className="space-y-2 text-[11px] font-mono">
+                               <div className="flex justify-between items-center text-zinc-400">
+                                 <span>GÓI GIA HẠN:</span>
+                                 <span className="font-bold text-white uppercase">{renewFormPackage || "CHƯA CHỌN"}</span>
+                               </div>
+                               <div className="flex justify-between items-center text-zinc-400">
+                                 <span>PHÍ DỊCH VỤ GỐC:</span>
+                                 <span className="text-white">
+                                   {(() => {
+                                     const selectedPkgObj = packages.find(p => p.name === renewFormPackage);
+                                     return selectedPkgObj ? selectedPkgObj.price.toLocaleString() : "0";
+                                   })()}đ
+                                 </span>
+                               </div>
+                               <div className="flex justify-between items-center text-zinc-400">
+                                 <span>GIẢM GIÁ TRỰC TIẾP:</span>
+                                 <span className="text-red-400">-{renewFormDiscount.toLocaleString()}đ</span>
+                               </div>
+                               <div className="w-full h-[1px] bg-white/10 my-1" />
+                               <div className="flex justify-between items-center text-xs">
+                                 <span className="text-[#CCFF00] font-black">TỔNG TIỀN PHẢI THU:</span>
+                                 <span className="text-[#CCFF00] font-black text-lg italic">
+                                   {(() => {
+                                     const selectedPkgObj = packages.find(p => p.name === renewFormPackage);
+                                     const basePrice = selectedPkgObj ? selectedPkgObj.price : 0;
+                                     return Math.max(0, basePrice - renewFormDiscount).toLocaleString();
+                                   })()}đ
+                                 </span>
+                               </div>
+                             </div>
+                           </div>
+
+                           {/* Submit button */}
+                           <button
+                             type="button"
+                             onClick={() => {
+                               if (!renewFormPackage) {
+                                 addNotification("Vui lòng chọn gói tập trước khi kích hoạt gia hạn", "error");
+                                 return;
+                               }
+                               const selectedPkgObj = packages.find(p => p.name === renewFormPackage);
+                               const basePrice = selectedPkgObj ? selectedPkgObj.price : 0;
+                               const actualPayment = Math.max(0, basePrice - renewFormDiscount);
+                               confirmAction(
+                                 "XÁC NHẬN GIA HẠN",
+                                 `Bạn có chắc chắn muốn gia hạn gói tập [${renewFormPackage}] cho hội viên ${selectedMember.fullName}? Số tiền phải thu là ${actualPayment.toLocaleString()}đ.`,
+                                 () => handleRenewFromProfileTab(),
+                                 "info"
+                               );
+                             }}
+                             className="w-full bg-[#CCFF00] hover:bg-white text-black font-black py-4 rounded-2xl text-[10px] uppercase tracking-widest transition-all duration-300 shadow-xl shadow-[#CCFF00]/10 flex items-center justify-center gap-2 cursor-pointer grow-0 shrink-0"
+                           >
+                             <RefreshCw className="w-4 h-4" />
+                             KÍCH HOẠT GIA HẠN NGAY (SUBMIT EXTENSION)
+                           </button>
+                         </div>
+                       )}
+                     </div>
                   </div>
                 </div>
               </div>
@@ -10166,159 +10807,756 @@ export default function App() {
       </AnimatePresence>
       <AnimatePresence>
         {isCheckinModalOpen && (
-          <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 font-sans text-white">
             <motion.div
               initial={{ opacity: 0, scale: 0.9, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              className="relative bg-black border border-white/10 w-full max-w-xl md:max-h-[85vh] rounded-none md:rounded-3xl shadow-[0_0_100px_rgba(0,0,0,1)] overflow-hidden flex flex-col"
+              className="relative bg-[#0d0f14] border border-white/10 w-full max-w-xl md:max-h-[88vh] rounded-[2rem] shadow-[0_0_100px_rgba(0,0,0,0.8)] overflow-hidden flex flex-col"
             >
-              <div className="p-6 md:p-8 border-b border-white/5">
+              {/* Header section with high tech subtitle */}
+              <div className="p-6 md:p-8 border-b border-white/5 bg-zinc-950/20">
                 <div className="flex justify-between items-start">
                   <div>
-                    <h3 className="text-2xl md:text-3xl font-black italic uppercase tracking-tighter">
-                      {t('quickCheckin')}
+                    <h3 className="text-2xl md:text-3xl font-black italic uppercase tracking-tighter text-white">
+                      {lang === 'vi' ? 'HỆ THỐNG KIỂM SOÁT CỔNG TỰ ĐỘNG' : 'GATE ACCESS SYSTEM'}
                     </h3>
-                    <p className="text-zinc-500 text-[10px] font-mono uppercase tracking-widest mt-1">
-                      {t('searchByPhone').toUpperCase()}
+                    <p className="text-[#CCFF00] text-[9px] font-mono uppercase tracking-[0.2em] mt-1 font-bold">
+                      {lang === 'vi' ? 'HỘI VIÊN & NHÂN VIÊN // AUTOMATED ATTENDANCE ENGINE' : 'STAFF & MEMBER LIVE TERMINAL'}
                     </p>
                   </div>
                   <button
                     onClick={() => {
                       stopCamera();
                       setIsCheckinModalOpen(false);
-                      setVerificationResult(null);
+                      setScanSuccessMessage(null);
+                      setScanErrorMessage(null);
                     }}
-                    className="p-2 text-zinc-500 hover:text-white"
+                    className="p-2 text-zinc-500 hover:text-white transition-colors cursor-pointer"
                   >
                     <X className="w-6 h-6" />
                   </button>
                 </div>
-                
-                {/* Search Bar */}
-                <div className="mt-6 relative">
-                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
-                  <input
-                    type="text"
-                    placeholder={t('searchHint')}
-                    value={checkinSearchTerm}
-                    onChange={(e) => setCheckinSearchTerm(e.target.value)}
-                    autoFocus
-                    className="w-full bg-white/5 border border-white/10 pl-12 pr-4 py-4 rounded-xl text-xs font-mono uppercase tracking-widest focus:outline-none focus:border-[#CCFF00] transition-colors"
-                  />
-                </div>
               </div>
 
-              <div className="flex-1 overflow-y-auto p-6 space-y-4">
-                {checkinSearchTerm ? (
-                  members.filter(
-                    (m) =>
-                      m.fullName.toLowerCase().includes(checkinSearchTerm.toLowerCase()) ||
-                      m.phone.includes(checkinSearchTerm),
-                  ).map((member) => (
-                    <div
-                      key={member.id}
-                      className="bg-white/5 border border-white/10 p-4 rounded-2xl flex flex-col gap-4"
-                    >
-                      <div className="flex justify-between items-center">
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-xl bg-zinc-800 flex items-center justify-center font-black text-[#CCFF00]">
-                            {member.fullName.charAt(0)}
-                          </div>
-                          <div>
-                            <p className="font-black uppercase tracking-tight text-sm">{member.fullName}</p>
-                            <p className="text-[10px] font-mono text-zinc-500 uppercase">{member.phone}</p>
-                          </div>
-                        </div>
-                        <span className="text-[9px] font-mono text-zinc-600">#{member.id}</span>
-                      </div>
+              {/* Advanced Tab selection inside the modal */}
+              <div className="flex border-b border-white/5 bg-zinc-950/40 p-1 mx-6 mt-4 rounded-2xl shrink-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCheckinModalActiveTab('qr');
+                    setScanSuccessMessage(null);
+                    setScanErrorMessage(null);
+                  }}
+                  className={`flex-1 py-3 text-center rounded-xl text-[10px] font-black uppercase tracking-widest transition-all duration-300 flex items-center justify-center gap-2 cursor-pointer ${checkinModalActiveTab === 'qr' ? 'bg-[#CCFF00] text-black shadow-lg shadow-[#CCFF00]/10 font-black' : 'text-zinc-400 hover:text-white hover:bg-white/5'}`}
+                >
+                  <QrCode className="w-3.5 h-3.5" />
+                  {lang === 'vi' ? 'QUÉT MÃ QR' : 'SCAN QR CODE'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCheckinModalActiveTab('member');
+                    setScanSuccessMessage(null);
+                    setScanErrorMessage(null);
+                  }}
+                  className={`flex-1 py-3 text-center rounded-xl text-[10px] font-black uppercase tracking-widest transition-all duration-300 flex items-center justify-center gap-2 cursor-pointer ${checkinModalActiveTab === 'member' ? 'bg-[#CCFF00] text-black shadow-lg shadow-[#CCFF00]/10 font-black' : 'text-zinc-400 hover:text-white hover:bg-white/5'}`}
+                >
+                  <Users className="w-3.5 h-3.5" />
+                  {lang === 'vi' ? 'TRA CỨU HỘI VIÊN' : 'MEMBERS'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCheckinModalActiveTab('staff');
+                    setScanSuccessMessage(null);
+                    setScanErrorMessage(null);
+                  }}
+                  className={`flex-1 py-3 text-center rounded-xl text-[10px] font-black uppercase tracking-widest transition-all duration-300 flex items-center justify-center gap-2 cursor-pointer ${checkinModalActiveTab === 'staff' ? 'bg-[#CCFF00] text-black shadow-lg shadow-[#CCFF00]/10 font-black' : 'text-zinc-400 hover:text-white hover:bg-white/5'}`}
+                >
+                  <Briefcase className="w-3.5 h-3.5" />
+                  {lang === 'vi' ? 'NHÂN SỰ RA VÀO' : 'STAFF PORTAL'}
+                </button>
+              </div>
 
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => handleQuickCheckin(member.id)}
-                            className="flex-1 bg-white/5 hover:bg-white/10 text-white font-black py-2.5 rounded-xl text-[10px] uppercase tracking-widest border border-white/10 transition-all flex items-center justify-center gap-2"
-                          >
-                            <Zap className="w-3.5 h-3.5 text-[#CCFF00]" />
-                            {t('quickCheckin')}
-                          </button>
-                          <button
-                            onClick={() => startCamera()}
-                            className="px-4 bg-white/5 hover:bg-white/10 text-zinc-400 rounded-xl border border-white/10 transition-all"
-                            title={t('capturePhoto')}
-                          >
-                            <CameraIcon className="w-4 h-4" />
-                          </button>
+              {/* Scrollable Container */}
+              <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
+                
+                {/* 1. QR PORTAL TAB */}
+                {checkinModalActiveTab === 'qr' && (
+                  <div className="space-y-6">
+                    {scanSuccessMessage ? (
+                      /* Scanned Success Result Panel */
+                      <motion.div 
+                        initial={{ scale: 0.95, opacity: 0 }}
+                        animate={{ scale: 1, opacity: 1 }}
+                        className="bg-[#CCFF00]/10 border border-[#CCFF00]/25 rounded-3xl p-6 text-center space-y-5"
+                      >
+                        <div className="w-16 h-16 rounded-full bg-[#CCFF00] text-black flex items-center justify-center mx-auto shadow-2xl animate-bounce">
+                          <CheckCircle2 className="w-10 h-10" />
+                        </div>
+                        <div>
+                          <h4 className="text-[#CCFF00] font-black uppercase tracking-widest text-xs italic">
+                            {scanSuccessMessage.title}
+                          </h4>
+                          <h2 className="text-3xl font-black italic uppercase tracking-tight text-white mt-1 leading-none">
+                            {scanSuccessMessage.name}
+                          </h2>
+                          <p className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest mt-1">
+                            ID: #{scanSuccessMessage.id.toString().padStart(4, '0')} | {scanSuccessMessage.phone}
+                          </p>
                         </div>
 
-                        {/* Camera Verification Area */}
-                        {isCameraActive && (
-                          <div className="relative aspect-video bg-black rounded-xl overflow-hidden border border-white/5">
-                            <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover scale-x-[-1]" />
-                            <div className="absolute bottom-4 inset-x-0 flex justify-center">
-                              <button
-                                onClick={() => handleVerifyAndCheckin(member)}
-                                disabled={isFaceVerifying}
-                                className="bg-[#CCFF00] text-black font-black px-6 py-2 rounded-xl text-[10px] uppercase tracking-widest flex items-center gap-2"
+                        {scanSuccessMessage.avatar && (
+                          <div className="w-24 h-24 rounded-2xl overflow-hidden bg-zinc-900 border border-white/10 mx-auto">
+                            <img src={scanSuccessMessage.avatar} className="w-full h-full object-cover" />
+                          </div>
+                        )}
+
+                        <div className="bg-black/55 rounded-2xl p-4 border border-white/5 text-left inline-block w-full">
+                          <div className="flex justify-between items-center text-xs">
+                            <span className="text-zinc-500 font-bold uppercase">{lang === 'vi' ? 'Thời gian quét' : 'Timestamp'}</span>
+                            <span className="font-mono text-[#CCFF00] font-bold">{scanSuccessMessage.time}</span>
+                          </div>
+                          <div className="w-full h-[1px] bg-white/5 my-2" />
+                          <div className="text-[11px] text-zinc-400 font-medium">
+                            {scanSuccessMessage.detail}
+                          </div>
+                          {scanSuccessMessage.statusText && (
+                            <div className="mt-2 text-[10px] font-mono text-pink-400 font-bold uppercase">
+                              // {scanSuccessMessage.statusText}
+                            </div>
+                          )}
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setScanSuccessMessage(null);
+                            setQrCodeInput('');
+                          }}
+                          className="w-full bg-[#CCFF00] text-black hover:bg-white font-black py-4 rounded-2xl text-[10px] uppercase tracking-widest transition-all duration-300 shadow-xl cursor-pointer"
+                        >
+                          {lang === 'vi' ? 'QUÉT LƯỢT TIẾP THEO' : 'DISMISS & SCAN NEXT'}
+                        </button>
+                      </motion.div>
+                    ) : scanErrorMessage ? (
+                      /* Scan Error/Failure Display */
+                      <motion.div 
+                        initial={{ scale: 0.95, opacity: 0 }}
+                        animate={{ scale: 1, opacity: 1 }}
+                        className="bg-red-500/10 border border-red-500/25 rounded-3xl p-6 text-center space-y-4"
+                      >
+                        <div className="w-14 h-14 rounded-full bg-red-500/20 border border-red-500 text-red-500 flex items-center justify-center mx-auto">
+                          <ShieldAlert className="w-8 h-8" />
+                        </div>
+                        <div>
+                          <h4 className="text-red-500 font-black uppercase tracking-widest text-[10px] italic">
+                            {lang === 'vi' ? 'LỖI KIỂM SOÁT PHÁP LÝ' : 'GATE EXCLUSION ERROR'}
+                          </h4>
+                          <p className="text-sm font-black text-white mt-2 leading-relaxed">
+                            {scanErrorMessage}
+                          </p>
+                        </div>
+                        
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setScanErrorMessage(null);
+                            setQrCodeInput('');
+                          }}
+                          className="w-full bg-red-500 hover:bg-red-600 text-white font-black py-3.5 rounded-2xl text-[10px] uppercase tracking-widest transition-all duration-300 cursor-pointer"
+                        >
+                          {lang === 'vi' ? 'QUÉT LẠI MÃ' : 'TRY ANOTHER CODE'}
+                        </button>
+                      </motion.div>
+                    ) : (
+                      /* Active Scanner Animation Area */
+                      <div className="space-y-6">
+                        <div className="relative aspect-square max-w-[280px] mx-auto bg-zinc-950 rounded-[2.5rem] overflow-hidden border border-white/10 flex flex-col items-center justify-center p-8 group">
+                          {/* Animated laser lines and corner brackets */}
+                          <div className="absolute top-6 left-6 w-6 h-6 border-t-4 border-l-4 border-[#CCFF00] rounded-tl-md" />
+                          <div className="absolute top-6 right-6 w-6 h-6 border-t-4 border-r-4 border-[#CCFF00] rounded-tr-md" />
+                          <div className="absolute bottom-6 left-6 w-6 h-6 border-b-4 border-l-4 border-[#CCFF00] rounded-bl-md" />
+                          <div className="absolute bottom-6 right-6 w-6 h-6 border-b-4 border-r-4 border-[#CCFF00] rounded-br-md" />
+                          
+                          {/* Pulsing Scan line */}
+                          <div className="absolute w-[80%] h-0.5 bg-gradient-to-r from-transparent via-[#CCFF00] to-transparent animate-pulse" style={{ top: '50%' }} />
+
+                          {isCameraActive ? (
+                            <div className="w-full h-full relative rounded-[2rem] overflow-hidden bg-black border border-white/5">
+                              <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover scale-x-[-1]" />
+                              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2">
+                                <span className="bg-black/80 px-3 py-1.5 rounded-full text-[9px] font-mono text-[#CCFF00] uppercase tracking-widest border border-[#CCFF00]/10 animate-pulse">
+                                  {lang === 'vi' ? 'CAMERA HOẠT ĐỘNG' : 'WEBCAM ACTIVE'}
+                                </span>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="text-center space-y-4">
+                              <QrCode className="w-20 h-20 text-[#CCFF00] mx-auto opacity-70 animate-pulse group-hover:scale-105 transition-transform" />
+                              <p className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest max-w-[200px] leading-relaxed mx-auto">
+                                {lang === 'vi' 
+                                  ? 'Đang chờ mã QR đặt trước luồng cảm ứng của thiết bị' 
+                                  : 'Awaiting QR credential presentment before sensor'}
+                              </p>
+                              
+                              <button 
+                                type="button"
+                                onClick={() => startCamera()}
+                                className="px-5 py-2.5 bg-white/5 border border-white/10 hover:border-white text-[10px] font-black uppercase text-zinc-300 rounded-xl transition-all tracking-wider inline-flex items-center gap-2 cursor-pointer"
                               >
-                                {isFaceVerifying ? (
-                                  <Loader2 className="w-4 h-4 animate-spin" />
-                                ) : (
-                                  <ShieldCheck className="w-4 h-4" />
-                                )}
-                                {isFaceVerifying ? t('analyzing') : t('checkinBtn')}
+                                <CameraIcon className="w-3.5 h-3.5" />
+                                {lang === 'vi' ? 'KÍCH HOẠT CAMERA' : 'ENABLE PHYSICAL WEBCAM'}
                               </button>
                             </div>
-                          </div>
-                        )}
-                        
-                        {verificationResult && !isFaceVerifying && (
-                          <div className={`absolute inset-0 flex items-center justify-center backdrop-blur-md p-6 text-center ${verificationResult.isVerified ? 'bg-[#CCFF00]/20' : 'bg-red-500/20'}`}>
-                             <div className="bg-black/80 p-6 rounded-3xl border border-white/10 max-w-xs">
-                                {verificationResult.isVerified ? (
-                                  <ShieldCheck className="w-12 h-12 text-[#CCFF00] mx-auto mb-3" />
-                                ) : (
-                                  <ShieldAlert className="w-12 h-12 text-red-500 mx-auto mb-3" />
-                                )}
-                                <h4 className={`text-sm font-black uppercase italic mb-2 ${verificationResult.isVerified ? 'text-[#CCFF00]' : 'text-red-500'}`}>
-                                  {verificationResult.isVerified ? t('faceMatched') : t('faceNotMatched')}
-                                </h4>
-                                <p className="text-[9px] font-mono text-zinc-500 uppercase leading-relaxed">
-                                  {verificationResult.reason}
-                                </p>
-                                <button 
-                                  onClick={() => setVerificationResult(null)}
-                                  className="mt-4 text-[9px] font-black uppercase text-[#CCFF00] underline"
-                                >
-                                  {t('retakePhoto')}
-                                </button>
-                             </div>
-                          </div>
-                        )}
+                          )}
+                        </div>
+
+                        {/* Auto-scanning instruction pass */}
+                        <div className="bg-[#121620]/80 border border-[#CCFF00]/10 rounded-2xl p-5 text-center space-y-2">
+                          <p className="text-[10px] font-mono font-black text-[#CCFF00] uppercase tracking-widest flex items-center justify-center gap-1.5 animate-pulse">
+                            <span className="w-1.5 h-1.5 rounded-full bg-[#CCFF00]" />
+                            {lang === 'vi' ? 'HỆ THỐNG QUÉT TỰ ĐỘNG ĐÃ SẴN SÀNG' : 'AUTO SCANNER ENGINE ACTIVE'}
+                          </p>
+                          <p className="text-xs text-zinc-400 font-medium leading-relaxed">
+                            {lang === 'vi' 
+                              ? 'Hội viên đăng nhập tài khoản trên điện thoại, mở mã QR cá nhân và đưa trực tiếp trước camera.' 
+                              : 'Members sign in on their phones, open their digital QR pass, and hold it in front of the camera.'}
+                          </p>
+                          <p className="text-[9.5px] font-mono text-zinc-500 uppercase tracking-tight">
+                            {lang === 'vi'
+                              ? 'Camera sẽ tự động nhận diện dạng mã QR và ghi nhận điểm danh ngay lập tức.'
+                              : 'The system will instantly decode, beep, and log physical check-in.'}
+                          </p>
+                        </div>
                       </div>
-                    ))
-                ) : (
-                  <div className="py-20 text-center opacity-20">
-                    <Search className="w-12 h-12 mx-auto mb-4" />
-                    <p className="text-[10px] font-mono uppercase tracking-widest">
-                      {t('noMatch')}
-                    </p>
+                    )}
                   </div>
                 )}
+
+                {/* 2. MEMBERS TAB (Classic phone and facial lookup checkin) */}
+                {checkinModalActiveTab === 'member' && (
+                  <div className="space-y-4">
+                    {/* Search Bar */}
+                    <div className="relative shrink-0">
+                      <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
+                      <input
+                        type="text"
+                        placeholder={t('searchHint')}
+                        value={checkinSearchTerm}
+                        onChange={(e) => setCheckinSearchTerm(e.target.value)}
+                        autoFocus
+                        className="w-full bg-white/5 border border-white/10 pl-12 pr-4 py-4 rounded-xl text-xs font-mono uppercase tracking-widest focus:outline-none focus:border-[#CCFF00] transition-colors"
+                      />
+                    </div>
+
+                    <div className="space-y-3.5 pt-2">
+                      {checkinSearchTerm ? (
+                        members.filter(
+                          (m) =>
+                            m.fullName.toLowerCase().includes(checkinSearchTerm.toLowerCase()) ||
+                            m.phone.includes(checkinSearchTerm),
+                        ).map((member) => (
+                          <div
+                            key={member.id}
+                            className="bg-white/5 border border-white/10 p-4 rounded-2xl flex flex-col gap-4"
+                          >
+                            <div className="flex justify-between items-center">
+                              <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-xl bg-zinc-800 flex items-center justify-center font-black text-[#CCFF00]">
+                                  {member.fullName.charAt(0)}
+                                </div>
+                                <div>
+                                  <p className="font-black uppercase tracking-tight text-sm text-white">{member.fullName}</p>
+                                  <p className="text-[10px] font-mono text-zinc-500 uppercase">{member.phone}</p>
+                                </div>
+                              </div>
+                              <span className="text-[9px] font-mono text-zinc-600">ID #{member.id.toString().padStart(3, '0')}</span>
+                            </div>
+
+                            <div className="flex gap-2">
+                              <button
+                                type="button"
+                                onClick={() => handleQuickCheckin(member.id)}
+                                className="flex-1 bg-white/5 hover:bg-white/10 text-white font-black py-2.5 rounded-xl text-[10px] uppercase tracking-widest border border-white/10 transition-all flex items-center justify-center gap-2 cursor-pointer"
+                              >
+                                <Zap className="w-3.5 h-3.5 text-[#CCFF00]" />
+                                {t('quickCheckin')}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setZoomedCheckinQrMember(member)}
+                                className="px-4 bg-[#CCFF00]/10 hover:bg-[#CCFF00]/20 text-[#CCFF00] rounded-xl border border-[#CCFF00]/20 transition-all flex items-center gap-1.5 cursor-pointer"
+                                title={lang === 'vi' ? 'Xem & Phóng to mã QR' : 'Zoom QR Code'}
+                              >
+                                <QrCode className="w-3.5 h-3.5" />
+                                <span className="text-[9px] font-black uppercase tracking-wider">{lang === 'vi' ? 'MÃ QR' : 'QR CODE'}</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => startCamera()}
+                                className="px-4 bg-white/5 hover:bg-white/10 text-zinc-400 rounded-xl border border-white/10 transition-all cursor-pointer"
+                                title={t('capturePhoto')}
+                              >
+                                <CameraIcon className="w-4 h-4" />
+                              </button>
+                            </div>
+
+                            {/* Camera Verification Area */}
+                            {isCameraActive && (
+                              <div className="relative aspect-video bg-black rounded-xl overflow-hidden border border-white/5">
+                                <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover scale-x-[-1]" />
+                                <div className="absolute bottom-4 inset-x-0 flex justify-center">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleVerifyAndCheckin(member)}
+                                    disabled={isFaceVerifying}
+                                    className="bg-[#CCFF00] text-black font-black px-6 py-2 rounded-xl text-[10px] uppercase tracking-widest flex items-center gap-2 cursor-pointer"
+                                  >
+                                    {isFaceVerifying ? (
+                                      <Loader2 className="w-4 h-4 animate-spin" />
+                                    ) : (
+                                      <ShieldCheck className="w-4 h-4" />
+                                    )}
+                                    {isFaceVerifying ? t('analyzing') : t('checkinBtn')}
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+                            
+                            {verificationResult && !isFaceVerifying && (
+                              <div className={`absolute inset-0 flex items-center justify-center backdrop-blur-md p-6 text-center ${verificationResult.isVerified ? 'bg-[#CCFF00]/20' : 'bg-red-500/20'}`}>
+                                 <div className="bg-black/80 p-6 rounded-3xl border border-white/10 max-w-xs">
+                                    {verificationResult.isVerified ? (
+                                      <ShieldCheck className="w-12 h-12 text-[#CCFF00] mx-auto mb-3" />
+                                    ) : (
+                                      <ShieldAlert className="w-12 h-12 text-red-500 mx-auto mb-3" />
+                                    )}
+                                    <h4 className={`text-sm font-black uppercase italic mb-2 ${verificationResult.isVerified ? 'text-[#CCFF00]' : 'text-red-500'}`}>
+                                      {verificationResult.isVerified ? t('faceMatched') : t('faceNotMatched')}
+                                    </h4>
+                                    <p className="text-[9px] font-mono text-zinc-500 uppercase leading-relaxed">
+                                      {verificationResult.reason}
+                                    </p>
+                                    <button 
+                                      type="button"
+                                      onClick={() => setVerificationResult(null)}
+                                      className="mt-4 text-[9px] font-black uppercase text-[#CCFF00] underline cursor-pointer"
+                                    >
+                                      {t('retakePhoto')}
+                                    </button>
+                                 </div>
+                              </div>
+                            )}
+                          </div>
+                        ))
+                      ) : (
+                        <div className="py-20 text-center opacity-20">
+                          <Search className="w-12 h-12 mx-auto mb-4" />
+                          <p className="text-[10px] font-mono uppercase tracking-widest text-[#8f98a9]">
+                            {t('noMatch')}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* 3. STAFF TAB (Attendance controls logging) */}
+                {checkinModalActiveTab === 'staff' && (
+                  <div className="space-y-4">
+                    {/* Search Bar for Staff */}
+                    <div className="relative shrink-0">
+                      <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
+                      <input
+                        type="text"
+                        placeholder={lang === 'vi' ? 'Tìm nhân sự theo tên, vị trí...' : 'Search staff by name/position...'}
+                        value={staffCheckinSearchTerm}
+                        onChange={(e) => setStaffCheckinSearchTerm(e.target.value)}
+                        autoFocus
+                        className="w-full bg-white/5 border border-white/10 pl-12 pr-4 py-4 rounded-xl text-xs font-mono uppercase tracking-widest focus:outline-none focus:border-[#CCFF00] transition-colors"
+                      />
+                    </div>
+
+                    <div className="space-y-3 pt-2">
+                      {staffMembers.filter(
+                        (s) => {
+                          if (!staffCheckinSearchTerm) return s.isActive;
+                          return (
+                            s.fullName.toLowerCase().includes(staffCheckinSearchTerm.toLowerCase()) ||
+                            s.position.toLowerCase().includes(staffCheckinSearchTerm.toLowerCase()) ||
+                            s.role.toLowerCase().includes(staffCheckinSearchTerm.toLowerCase())
+                          );
+                        }
+                      ).map((member) => {
+                        const today = new Date().toISOString().split('T')[0];
+                        const activeShift = attendance.find(l => l.staffId === member.id && l.date === today && !l.checkOut);
+                        
+                        return (
+                          <div
+                            key={member.id}
+                            className="bg-white/5 border border-white/10 p-4 rounded-2xl flex items-center justify-between gap-4 hover:border-white/15 transition-all"
+                          >
+                            <div className="flex items-center gap-3">
+                              <div className="w-10 h-10 rounded-xl bg-zinc-800 flex flex-col items-center justify-center border border-white/5">
+                                <span className="font-mono text-zinc-500 text-[9px]">ID</span>
+                                <span className="font-mono font-black text-[#CCFF00] text-xs -mt-1">{member.id}</span>
+                              </div>
+                              <div>
+                                <p className="font-black uppercase tracking-tight text-sm text-white">
+                                  {member.fullName}
+                                </p>
+                                <div className="flex items-center gap-2 mt-0.5">
+                                  <span className="text-[9px] font-bold text-zinc-400 font-mono uppercase">
+                                    {member.role} ({member.position})
+                                  </span>
+                                  <span className="w-1 h-1 rounded-full bg-zinc-600" />
+                                  <span className={`text-[8px] font-black uppercase font-mono tracking-wider ${activeShift ? 'text-emerald-400 animate-pulse' : 'text-zinc-500'}`}>
+                                    ● {activeShift ? (lang === 'vi' ? 'ĐANG LÀM Shift' : 'ON SHIFT') : (lang === 'vi' ? 'RA CA' : 'OFFLINE')}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="shrink-0">
+                              {activeShift ? (
+                                <button
+                                  type="button"
+                                  onClick={() => handleStaffAttendance(member.id, "checkout")}
+                                  className="px-4 py-2 bg-pink-500/20 text-pink-400 hover:bg-pink-500 hover:text-black border border-pink-500/25 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all cursor-pointer"
+                                >
+                                  {lang === 'vi' ? 'TAN CA (OUT)' : 'CLOCK-OUT'}
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => handleStaffAttendance(member.id, "checkin")}
+                                  className="px-4 py-2 bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500 hover:text-black border border-emerald-500/25 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all cursor-pointer"
+                                >
+                                  {lang === 'vi' ? 'VÀO CA (IN)' : 'CLOCK-IN'}
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
               </div>
 
-              <div className="p-4 bg-zinc-900/50 border-t border-white/5 flex justify-end">
+              {/* Advanced System status footer */}
+              <div className="p-4 bg-zinc-950/80 border-t border-white/5 flex justify-between items-center shrink-0">
+                <span className="text-[8px] font-mono text-zinc-600 uppercase tracking-widest leading-none">
+                  SECURE MODULE // ADDR-{Math.random().toString(16).substring(4, 10).toUpperCase()}
+                </span>
                 <button
+                  type="button"
                   onClick={() => {
                     stopCamera();
                     setIsCheckinModalOpen(false);
-                    setCheckinSearchTerm("");
-                    setVerificationResult(null);
+                    setScanSuccessMessage(null);
+                    setScanErrorMessage(null);
                   }}
-                  className="px-6 py-2 text-[10px] font-black uppercase tracking-widest text-zinc-500 hover:text-white transition-colors"
+                  className="px-6 py-2 bg-white/5 hover:bg-white/10 text-[10px] font-black uppercase tracking-widest text-zinc-400 hover:text-white rounded-xl border border-white/5 transition-all cursor-pointer"
                 >
                   {t('closeWindow')}
                 </button>
               </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Modal - Tự Phục vụ Điểm danh Hội viên */}
+      <AnimatePresence>
+        {isMemberSelfScannerOpen && (
+          <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 font-sans text-white">
+            <div className="absolute inset-0 bg-black/80 backdrop-blur-md" />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 30 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 30 }}
+              className="relative bg-[#0d0f14] border border-[#CCFF00]/10 w-full max-w-sm rounded-[2.5rem] shadow-[0_0_120px_rgba(204,255,0,0.05)] overflow-hidden p-8 flex flex-col items-center text-center space-y-6"
+            >
+              <div className="absolute top-0 right-0 w-60 h-60 bg-[#CCFF00]/5 blur-[60px] rounded-full pointer-events-none" />
+              
+              <div className="flex justify-between items-center w-full">
+                <span className="text-[9px] font-mono font-bold text-[#CCFF00] bg-[#CCFF00]/10 px-3 py-1 rounded-full uppercase tracking-wider">
+                  MÃ QUÉT THIẾT BỊ LỐC CHẠY
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setIsMemberSelfScannerOpen(false)}
+                  className="p-1 text-zinc-500 hover:text-white transition-colors cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {selfScanStep === 'scanning' && (
+                <div className="space-y-6 py-6 w-full flex flex-col items-center">
+                  <div className="relative w-40 h-40 border-2 border-dashed border-[#CCFF00]/40 rounded-3xl flex items-center justify-center p-4">
+                    {/* Animated laser line */}
+                    <div className="absolute top-2 w-[85%] h-0.5 bg-[#CCFF00] animate-bounce shadow-[0_0_15px_#CCFF00]" style={{ animationDuration: '1.4s' }} />
+                    <QrCode className="w-20 h-20 text-[#CCFF00] animate-pulse" />
+                  </div>
+                  <div className="space-y-2">
+                    <h3 className="text-xl font-black uppercase italic tracking-tight">{lang === 'vi' ? 'ĐANG KẾT NỐI CỔNG ĐIỆN TỬ' : 'TRANSMITTING CREDENTIAL'}</h3>
+                    <p className="text-zinc-500 text-[10.5px] leading-relaxed max-w-[280px] mx-auto">
+                      {lang === 'vi' 
+                        ? 'Đang truyền dữ liệu tài khoản hội viên của bạn với khóa API để mở khóa tay quay vào sàn...' 
+                        : 'Broadcasting Platinum member check-in sequence to physical turnstile...'}
+                    </p>
+                  </div>
+                  <div className="w-12 h-1 bg-white/5 rounded-full overflow-hidden relative">
+                    <div className="absolute top-0 left-0 h-full bg-[#CCFF00] animate-[shimmer_1.5s_infinite]" style={{ width: '60%' }} />
+                  </div>
+                </div>
+              )}
+
+              {selfScanStep === 'success' && (
+                <div className="space-y-6 py-4 w-full">
+                  <div className="w-20 h-20 rounded-full bg-[#CCFF00] text-black flex items-center justify-center mx-auto shadow-2xl shadow-[#CCFF00]/10">
+                    <CheckCircle2 className="w-12 h-12" />
+                  </div>
+                  <div className="space-y-2">
+                    <h3 className="text-2xl font-black italic uppercase text-[#CCFF00] tracking-tighter">
+                      {lang === 'vi' ? 'QUÉT CỔNG THÀNH CÔNG!' : 'ACCESS GRANTED'}
+                    </h3>
+                    <p className="text-white font-extrabold text-lg uppercase">
+                      {user?.fullName}
+                    </p>
+                    <p className="text-zinc-400 text-xs max-w-[280px] mx-auto leading-relaxed">
+                      {lang === 'vi' 
+                        ? 'Cửa kiểm soát đã mở khóa điện từ. Chúc bạn có một buổi tập luyện tràn đầy năng lượng tại Fit Gym!' 
+                        : 'Welcome to Fit Gym! Gate turnstile electromagnet has unlocked successfully.'}
+                    </p>
+                  </div>
+                  <div className="bg-zinc-950/45 border border-white/5 rounded-2xl p-4 text-xs font-mono tracking-tight space-y-1.5 text-left inline-block w-full">
+                    <div className="flex justify-between">
+                      <span className="text-zinc-500">MÃ SỐ THEO DÕI</span>
+                      <span className="text-white font-bold">#REG-{Math.floor(1000 + Math.random()*9000)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-zinc-500">THỜI GIAN VÀO</span>
+                      <span className="text-[#CCFF00] font-bold">VỪA XONG // {new Date().toLocaleTimeString()}</span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsMemberSelfScannerOpen(false)}
+                    className="w-full bg-[#CCFF00] hover:bg-white text-black font-black py-4 rounded-2xl text-[10px] uppercase tracking-widest transition-all duration-300 cursor-pointer"
+                  >
+                    ĐỒNG Ý (DISMISS)
+                  </button>
+                </div>
+              )}
+
+              {selfScanStep === 'error' && (
+                <div className="space-y-6 py-4 w-full">
+                  <div className="w-16 h-16 rounded-full bg-red-500/10 border border-red-500/30 text-red-500 flex items-center justify-center mx-auto">
+                    <ShieldAlert className="w-10 h-10" />
+                  </div>
+                  <div className="space-y-2">
+                    <h3 className="text-xl font-black italic uppercase text-red-500 tracking-tighter">
+                      {lang === 'vi' ? 'KIỂM SOÁT CỬA TỪ CHỐI' : 'ACCESS DENIED'}
+                    </h3>
+                    <p className="text-zinc-400 text-xs max-w-[280px] mx-auto leading-relaxed">
+                      {selfScanError || "Vui lòng kiểm tra lại trạng thái đăng ký hội viên của bạn."}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsMemberSelfScannerOpen(false)}
+                    className="w-full bg-red-500 hover:bg-red-600 text-white font-black py-3.5 rounded-2xl text-[10px] uppercase tracking-widest transition-all duration-300 cursor-pointer"
+                  >
+                    QUAY LẠI (BACK)
+                  </button>
+                </div>
+              )}
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Modal - Phóng To Mã QR Hội Viên Để Quét */}
+      <AnimatePresence>
+        {zoomedCheckinQrMember && (
+          <div className="fixed inset-0 z-[140] flex items-center justify-center p-4 font-sans text-white">
+            <div className="absolute inset-0 bg-black/95 backdrop-blur-md animate-fadeIn" onClick={() => setZoomedCheckinQrMember(null)} />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 35 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 35 }}
+              className="relative bg-[#0d0f14] border border-[#CCFF00]/30 w-full max-w-sm rounded-[2.5rem] shadow-[0_0_150px_rgba(204,255,0,0.2)] overflow-hidden p-8 flex flex-col items-center text-center space-y-6"
+            >
+              {/* Background Glow */}
+              <div className="absolute -top-10 left-1/2 -translate-x-1/2 w-72 h-72 bg-[#CCFF00]/5 blur-[80px] rounded-full pointer-events-none" />
+
+              {/* Floating Header */}
+              <div className="flex justify-between items-center w-full z-10">
+                <span className="text-[9px] font-mono font-bold text-[#CCFF00] bg-[#CCFF00]/10 border border-[#CCFF00]/25 px-3 py-1 rounded-full uppercase tracking-wider">
+                  MÃ QR ĐIỂM DANH SẴN SÀNG
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setZoomedCheckinQrMember(null)}
+                  className="p-1.5 text-zinc-500 hover:text-white bg-white/5 rounded-full transition-colors cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Card Surface */}
+              <div className="w-full bg-gradient-to-b from-[#121620] to-black rounded-[2rem] p-6 border border-white/5 space-y-5 shadow-2xl relative overflow-hidden z-10">
+                <div className="absolute inset-x-0 top-0 h-[3px] bg-[#CCFF00] opacity-80" />
+                
+                {/* Brand info */}
+                <div className="flex justify-between items-start">
+                  <div className="text-left">
+                    <h2 className="text-lg font-black italic tracking-tighter leading-none text-white">FIT <span className="text-[#CCFF00]">GYM</span></h2>
+                    <p className="text-[7px] font-mono text-zinc-500 tracking-widest uppercase mt-0.5">QUÉT ĐỂ TỰ ĐỘNG ĐIỂM DANH</p>
+                  </div>
+                  <span className="text-[9px] font-mono font-bold text-[#CCFF00] bg-[#CCFF00]/10 px-2 py-0.5 rounded uppercase font-black animate-pulse">
+                    MÃ HOẠT ĐỘNG
+                  </span>
+                </div>
+
+                {/* Main QR Code container in high-contrast crisp display */}
+                <div className="bg-white p-5 rounded-[2rem] shadow-inner max-w-[210px] mx-auto border-4 border-[#CCFF00]/40">
+                  <img 
+                    src={`https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=MEM_${zoomedCheckinQrMember.id}`} 
+                    className="w-full h-full mix-blend-multiply opacity-100"
+                    alt={`User MEM_${zoomedCheckinQrMember.id} QR`} 
+                  />
+                </div>
+
+                {/* Member information block */}
+                <div className="space-y-1 text-center">
+                  <h3 className="text-xl font-black uppercase text-white leading-tight">
+                    {zoomedCheckinQrMember.fullName}
+                  </h3>
+                  <p className="text-zinc-500 text-[9px] font-mono uppercase tracking-[0.2em]">
+                    SỐ ĐT: {zoomedCheckinQrMember.phone} | ID-#{zoomedCheckinQrMember.id.toString().padStart(4, '0')}
+                  </p>
+                </div>
+
+                {/* Decorative scanning guidelines & barcode simulation */}
+                <div className="pt-2 border-t border-white/5 text-center">
+                  <p className="text-[8.5px] font-mono text-[#CCFF00] font-black uppercase tracking-widest">
+                    {lang === 'vi' 
+                      ? 'ĐƯA TRỰC DIỆN MÃ NÀY TRƯỚC CAMERA ĐỂ ĐIỂM DANH' 
+                      : 'STAND FRONT OF WEBCAM TO LOG PHYSICAL CHECK-IN'}
+                  </p>
+                </div>
+              </div>
+
+              {/* Action dismissing overlay */}
+              <button
+                type="button"
+                onClick={() => setZoomedCheckinQrMember(null)}
+                className="w-full bg-[#CCFF00] hover:bg-white text-black font-black py-4 rounded-2xl text-[10px] uppercase tracking-widest transition-all duration-300 shadow-xl cursor-pointer z-10"
+              >
+                {lang === 'vi' ? 'ĐÓNG CỬA SỔ (CLOSE)' : 'CLOSE WINDOW'}
+              </button>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Modal - Thẻ Hội viên Kỹ thuật số Phóng to */}
+      <AnimatePresence>
+        {isDigitalCardOpen && (
+          <div className="fixed inset-0 z-[130] flex items-center justify-center p-4 font-sans text-white">
+            <div className="absolute inset-0 bg-black/90 backdrop-blur-md animate-fadeIn" onClick={() => setIsDigitalCardOpen(false)} />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 30 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 30 }}
+              className="relative bg-[#0d0f14] border border-[#CCFF00]/25 w-full max-w-sm rounded-[2.5rem] shadow-[0_0_150px_rgba(204,255,0,0.15)] overflow-hidden p-8 flex flex-col items-center text-center space-y-6"
+            >
+              {/* Background Glow */}
+              <div className="absolute -top-10 left-1/2 -translate-x-1/2 w-72 h-72 bg-[#CCFF00]/5 blur-[80px] rounded-full pointer-events-none" />
+
+              {/* Floating Header */}
+              <div className="flex justify-between items-center w-full z-10">
+                <span className="text-[9px] font-mono font-bold text-[#CCFF00] bg-[#CCFF00]/10 border border-[#CCFF00]/25 px-3 py-1 rounded-full uppercase tracking-wider">
+                  THẺ HỘI VIÊN CHÍNH THỨC
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setIsDigitalCardOpen(false)}
+                  className="p-1.5 text-zinc-500 hover:text-white bg-white/5 rounded-full transition-colors cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Card Surface */}
+              <div className="w-full bg-gradient-to-b from-[#121620] to-black rounded-[2rem] p-6 border border-white/5 space-y-5 shadow-2xl relative overflow-hidden z-10">
+                <div className="absolute inset-x-0 top-0 h-[3px] bg-[#CCFF00] opacity-80" />
+                
+                {/* Brand info */}
+                <div className="flex justify-between items-start">
+                  <div className="text-left">
+                    <h2 className="text-lg font-black italic tracking-tighter leading-none text-white">FIT <span className="text-[#CCFF00]">GYM</span></h2>
+                    <p className="text-[7px] font-mono text-zinc-500 tracking-widest uppercase mt-0.5">MEMBER ACCESS CODES</p>
+                  </div>
+                  <span className="text-[9px] font-mono font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded uppercase">
+                    ● HOẠT ĐỘNG
+                  </span>
+                </div>
+
+                {/* Main QR Code container in high-contrast crisp display */}
+                <div className="bg-white p-4 rounded-[2rem] shadow-inner max-w-[200px] mx-auto transform hover:scale-105 transition-transform duration-300">
+                  <img 
+                    src={`https://api.qrserver.com/v1/create-qr-code/?size=350x350&data=MEM_${user?.id}`} 
+                    className="w-full h-full mix-blend-multiply opacity-95"
+                    alt={`User MEM_${user?.id} QR`} 
+                  />
+                </div>
+
+                {/* Member information block */}
+                <div className="space-y-1 text-center">
+                  <h3 className="text-xl font-black uppercase text-white leading-tight">
+                    {user?.fullName}
+                  </h3>
+                  <p className="text-[#CCFF00] text-[9px] font-mono font-extrabold uppercase tracking-[0.2em]">
+                    PLATINUM MEMBER | ID-#{user?.id.toString().padStart(4, '0')}
+                  </p>
+                </div>
+
+                {/* Decorative scanning guidelines & barcode simulation */}
+                <div className="pt-2 border-t border-white/5 text-center">
+                  <div className="flex justify-center gap-1.5 opacity-30 h-6 overflow-hidden">
+                    <div className="w-1 bg-white rounded-sm h-full" />
+                    <div className="w-3 bg-white rounded-sm h-full" />
+                    <div className="w-0.5 bg-white rounded-sm h-full" />
+                    <div className="w-2 bg-white rounded-sm h-full" />
+                    <div className="w-4 bg-white rounded-sm h-full" />
+                    <div className="w-1.5 bg-white rounded-sm h-full" />
+                    <div className="w-0.5 bg-white rounded-sm h-full" />
+                    <div className="w-3 bg-white rounded-sm h-full" />
+                  </div>
+                  <p className="text-[8px] font-mono text-zinc-500 uppercase tracking-widest mt-2">
+                    {lang === 'vi' 
+                      ? 'ĐẠT MÃ TRƯỚC CAMERA ĐỂ ĐIỂM DANH TỰ ĐỘNG' 
+                      : 'HOLD PASS FRONT OF ACCESS WEBCAM TO DIRECT_LOG'}
+                  </p>
+                </div>
+              </div>
+
+              {/* Action dismissing overlay */}
+              <button
+                type="button"
+                onClick={() => setIsDigitalCardOpen(false)}
+                className="w-full bg-[#CCFF00] hover:bg-white text-black font-black py-4 rounded-2xl text-[10px] uppercase tracking-widest transition-all duration-300 shadow-xl cursor-pointer z-10"
+              >
+                {lang === 'vi' ? 'ĐÓNG (DISMISS)' : 'CLOSE WINDOW'}
+              </button>
             </motion.div>
           </div>
         )}
@@ -10367,6 +11605,7 @@ export default function App() {
                       body: JSON.stringify(newPkg),
                     });
                     if (res.ok) {
+                      const data = await res.json().catch(() => ({}));
                       setIsPkgModalOpen(false);
                       setNewPkg({
                         name: "",
@@ -10374,11 +11613,19 @@ export default function App() {
                         price: 0,
                         description: "",
                       });
-                      addNotification(
-                        isEditing
-                          ? t('pkgUpdateSuccess')
-                          : t('pkgAddSuccess'),
-                      );
+                      if (isEditing && data.cascadeInfo) {
+                        const { updatedMembersCount, updatedSalesCount } = data.cascadeInfo;
+                        addNotification(
+                          `Gói tập cập nhật thành công! Đã tự động đồng bộ tức thì thông tin ${updatedMembersCount} hội viên & ${updatedSalesCount} hóa đơn liên quan.`,
+                          "success"
+                        );
+                      } else {
+                        addNotification(
+                          isEditing
+                            ? t('pkgUpdateSuccess')
+                            : t('pkgAddSuccess'),
+                        );
+                      }
                       setEditingPkgId(null);
                       fetchData();
                     }
@@ -10984,7 +12231,7 @@ export default function App() {
                   </div>
                 </div>
 
-                {checkIsAdminLike(user) && (
+                {user?.role === "ADMIN" && (
                   <div className="col-span-full">
                     <label className="block text-[10px] font-mono text-zinc-500 uppercase tracking-widest mb-2 italic font-bold">
                       {t('staffInCharge')}
@@ -11160,12 +12407,8 @@ export default function App() {
               className="relative bg-black border border-white/10 w-full max-w-lg rounded-[2.5rem] shadow-[0_0_100px_rgba(0,0,0,1)] overflow-hidden p-10"
             >
               <div className="mb-8">
-                <div className="flex items-center gap-3 mb-2">
-                   <div className={`w-8 h-1 rounded-full ${renewalStep === 1 ? 'bg-[#CCFF00]' : 'bg-zinc-800'}`} />
-                   <div className={`w-8 h-1 rounded-full ${renewalStep === 2 ? 'bg-[#CCFF00]' : 'bg-zinc-800'}`} />
-                </div>
                 <h3 className="text-3xl font-black italic uppercase tracking-tighter text-[#CCFF00]">
-                  {renewalStep === 1 ? t('confirmRenewal') : t('paymentConfirmation')}
+                  {t('confirmRenewal')}
                 </h3>
                 <p className="text-zinc-500 text-[10px] font-mono uppercase tracking-[0.2em] mt-1">
                   {t('selectNewPackage')}: {selectedRenewPackage.name}
@@ -11173,86 +12416,50 @@ export default function App() {
               </div>
 
               <div className="space-y-6">
-                {renewalStep === 1 ? (
-                  <>
-                    <div className="bg-white/5 border border-white/10 rounded-2xl p-6 space-y-6">
-                      <div>
-                        <p className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest mb-2 italic">{t('amount')}</p>
-                        <p className="text-4xl font-black text-white tracking-tighter">
-                          {selectedRenewPackage.price.toLocaleString()}đ
-                        </p>
-                      </div>
-                      
-                      <div className="border-t border-white/5 pt-6">
-                        <label className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest mb-4 block italic font-bold">
-                          {t('startDate')}
-                        </label>
-                        <div className="relative group">
-                          <input 
-                            ref={renewalDateRef}
-                            id="renewal-date-input"
-                            type="date"
-                            value={renewalDate}
-                            onChange={(e) => setRenewalDate(e.target.value)}
-                            className="w-full bg-zinc-950 border border-white/10 p-4 rounded-xl text-white font-black uppercase outline-none focus:border-[#CCFF00] transition-colors cursor-pointer"
-                            style={{ colorScheme: 'dark' }}
-                          />
-                        </div>
-                      </div>
+                <div className="bg-white/5 border border-white/10 rounded-2xl p-6 space-y-6">
+                  <div>
+                    <p className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest mb-2 italic">{t('amount')}</p>
+                    <p className="text-4xl font-black text-white tracking-tighter">
+                      {selectedRenewPackage.price.toLocaleString()}đ
+                    </p>
+                  </div>
+                  
+                  <div className="border-t border-white/5 pt-6">
+                    <label className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest mb-4 block italic font-bold">
+                      {t('startDate')}
+                    </label>
+                    <div className="relative group">
+                      <input 
+                        ref={renewalDateRef}
+                        id="renewal-date-input"
+                        type="date"
+                        value={renewalDate}
+                        onChange={(e) => setRenewalDate(e.target.value)}
+                        className="w-full bg-zinc-950 border border-white/10 p-4 rounded-xl text-white font-black uppercase outline-none focus:border-[#CCFF00] transition-colors cursor-pointer"
+                        style={{ colorScheme: 'dark' }}
+                      />
                     </div>
+                  </div>
+                </div>
 
-                    <button 
-                      onClick={() => {
-                        const currentMember = members.find(m => m.id === user?.id);
-                        if (currentMember && currentMember.status === 'Hoạt động' && currentMember.expiryDate) {
-                          const start = new Date(renewalDate);
-                          const expiry = new Date(currentMember.expiryDate);
-                          if (start <= expiry) {
-                            addNotification(t('overlapError') + currentMember.expiryDate, 'error');
-                            return;
-                          }
-                        }
-                        setRenewalStep(2);
-                      }}
-                      className="w-full py-5 bg-[#CCFF00] text-black rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-white transition-all shadow-xl shadow-[#CCFF00]/10 flex items-center justify-center gap-2"
-                    >
-                      XÁC NHẬN & TIẾP TỤC
-                      <ArrowRight className="w-4 h-4" />
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <div className="bg-[#CCFF00]/5 border border-[#CCFF00]/20 rounded-2xl p-6 text-center italic">
-                       <p className="text-[10px] font-black text-[#CCFF00] uppercase tracking-widest mb-1">TỔNG THANH TOÁN</p>
-                       <p className="text-3xl font-black text-white tracking-tighter">{selectedRenewPackage.price.toLocaleString()}đ</p>
-                       <p className="text-[9px] font-mono text-zinc-500 mt-2 uppercase tracking-widest">NGÀY BẮT ĐẦU: {renewalDate}</p>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-4">
-                        <button 
-                          onClick={() => handleRenewPackage("Chuyển khoản")}
-                          className="flex flex-col items-center gap-3 p-6 bg-white/5 border border-white/10 rounded-2xl hover:border-[#CCFF00] hover:bg-[#CCFF00]/10 transition-all group"
-                        >
-                          <ArrowUpRight className="w-6 h-6 text-zinc-600 group-hover:text-[#CCFF00]" />
-                          <span className="text-[9px] font-black uppercase tracking-widest text-zinc-400 group-hover:text-white">CHUYỂN KHOẢN</span>
-                        </button>
-                        <button 
-                          onClick={() => handleRenewPackage("Tiền mặt")}
-                          className="flex flex-col items-center gap-3 p-6 bg-white/5 border border-white/10 rounded-2xl hover:border-[#CCFF00] hover:bg-[#CCFF00]/10 transition-all group"
-                        >
-                          <DollarSign className="w-6 h-6 text-zinc-600 group-hover:text-[#CCFF00]" />
-                          <span className="text-[9px] font-black uppercase tracking-widest text-zinc-400 group-hover:text-white">TIỀN MẶT</span>
-                        </button>
-                     </div>
-
-                     <button 
-                        onClick={() => setRenewalStep(1)}
-                        className="w-full py-4 text-[10px] font-black uppercase text-zinc-500 hover:text-white transition-all underline underline-offset-4"
-                     >
-                        QUAY LẠI CHỈNH SỬA
-                     </button>
-                  </>
-                )}
+                <button 
+                  onClick={() => {
+                    const currentMember = members.find(m => m.id === user?.id);
+                    if (currentMember && currentMember.status === 'Hoạt động' && currentMember.expiryDate) {
+                      const start = new Date(renewalDate);
+                      const expiry = new Date(currentMember.expiryDate);
+                      if (start <= expiry) {
+                        addNotification(t('overlapError') + currentMember.expiryDate, 'error');
+                        return;
+                      }
+                    }
+                    handleRenewPackage("Chuyển khoản");
+                  }}
+                  className="w-full py-5 bg-[#CCFF00] text-black rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-white transition-all shadow-xl shadow-[#CCFF00]/10 flex items-center justify-center gap-2"
+                >
+                  XÁC NHẬN GIA HẠN GÓI TẬP
+                  <ArrowRight className="w-4 h-4" />
+                </button>
 
                  <button 
                   onClick={() => setIsRenewalModalOpen(false)}

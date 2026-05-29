@@ -342,6 +342,11 @@ async function startServer() {
     },
   ];
 
+  // Gán Trần Thị Tiếp Tân làm nhân viên phụ trách cho tất cả hội viên
+  members.forEach(m => {
+    m.createdBy = "staff_user";
+  });
+
   let packages = [
     { id: 1, name: "Gói Cơ Bản", duration: "1 Tháng", price: 500000, description: "Tập luyện tự do, không bao gồm huấn luyện viên", status: "Mở bán" },
     { id: 2, name: "Gói Tiêu Chuẩn 6T", duration: "6 Tháng", price: 2500000, description: "Tập luyện tự do, tặng 2 buổi tập với PT", status: "Mở bán" },
@@ -599,6 +604,22 @@ async function startServer() {
       const maxId = staffMembers.length > 0 ? Math.max(...staffMembers.map(s => s.id)) : 0;
       const newStaff = { id: maxId + 1, isActive: true, ...req.body };
       staffMembers.push(newStaff);
+
+      // Synchronize to users database
+      const username = newStaff.email || newStaff.username || `staff_${newStaff.id}`;
+      const password = newStaff.password || "123456";
+      const uRole = newStaff.role || "STAFF";
+      const existingUserIdx = users.findIndex(u => u.username.toLowerCase() === username.toLowerCase());
+      if (existingUserIdx === -1) {
+        users.push({
+          id: users.length > 0 ? Math.max(...users.map(u => u.id)) + 1 : 1,
+          username,
+          password,
+          role: uRole === "ADMIN" ? "ADMIN" : "STAFF",
+          fullName: newStaff.fullName
+        });
+      }
+
       res.status(201).json(newStaff);
     }
   });
@@ -640,8 +661,27 @@ async function startServer() {
         if (req.body.email && !req.body.email.toLowerCase().endsWith("@fit.com")) {
           return res.status(400).json({ message: "Nhân viên bắt buộc sử dụng email đuôi @fit.com." });
         }
-        staffMembers[index] = { ...staffMembers[index], ...req.body, id };
-        res.json(staffMembers[index]);
+        const updatedStaff = { ...staffMembers[index], ...req.body, id };
+        staffMembers[index] = updatedStaff;
+
+        // Sync edits to users
+        const username = updatedStaff.email || updatedStaff.username || `staff_${updatedStaff.id}`;
+        const userIdx = users.findIndex(u => u.username.toLowerCase() === username.toLowerCase());
+        if (userIdx !== -1) {
+          users[userIdx].fullName = updatedStaff.fullName;
+          if (updatedStaff.password) users[userIdx].password = updatedStaff.password;
+          users[userIdx].role = updatedStaff.role === "ADMIN" ? "ADMIN" : "STAFF";
+        } else {
+          users.push({
+            id: users.length > 0 ? Math.max(...users.map(u => u.id)) + 1 : 1,
+            username,
+            password: updatedStaff.password || "123456",
+            role: updatedStaff.role === "ADMIN" ? "ADMIN" : "STAFF",
+            fullName: updatedStaff.fullName
+          });
+        }
+
+        res.json(updatedStaff);
       } else {
         res.status(404).json({ message: "Không tìm thấy nhân viên" });
       }
@@ -1134,10 +1174,34 @@ async function startServer() {
   });
 
   app.get("/api/users/staff", (req, res) => {
-    const staffList = users
-      .filter(u => u.role === 'ADMIN' || u.role === 'STAFF')
-      .map(u => ({ username: u.username, fullName: u.fullName, role: u.role }));
-    res.json(staffList);
+    const candidatesMap = new Map<string, { username: string; fullName: string; role: string }>();
+
+    // 1. Add from base users database
+    users.forEach(u => {
+      if (u.role === 'ADMIN' || u.role === 'STAFF') {
+        const key = u.username.toLowerCase();
+        candidatesMap.set(key, {
+          username: u.username,
+          fullName: u.fullName,
+          role: u.role
+        });
+      }
+    });
+
+    // 2. Add from staffMembers (only if active and role is not PT)
+    staffMembers.forEach(s => {
+      if (s.isActive && s.role !== 'PT') {
+        const username = s.email || s.username || s.fullName;
+        const key = username.toLowerCase();
+        candidatesMap.set(key, {
+          username: username,
+          fullName: s.fullName,
+          role: s.role === 'RECEPTIONIST' ? 'STAFF' : s.role
+        });
+      }
+    });
+
+    res.json(Array.from(candidatesMap.values()));
   });
 
   // API Routes
@@ -1301,11 +1365,94 @@ async function startServer() {
     const pkgId = parseInt(req.params.id);
     const index = packages.findIndex(p => p.id === pkgId);
     if (index !== -1) {
+      const oldName = packages[index].name;
+      const newName = req.body.name;
+      const newPrice = req.body.price;
+
+      // Update package
       packages[index] = { ...packages[index], ...req.body, id: pkgId };
-      res.json(packages[index]);
+
+      let updatedMembersCount = 0;
+      let updatedSalesCount = 0;
+
+      // 1. Cascade name change to members
+      if (oldName && newName && oldName !== newName) {
+        members.forEach(m => {
+          if (m.package === oldName) {
+            m.package = newName;
+            updatedMembersCount++;
+          }
+        });
+
+        memberSales.forEach(s => {
+          if (s.serviceName === oldName) {
+            s.serviceName = newName;
+            updatedSalesCount++;
+          }
+        });
+      }
+
+      // 2. Cascade price to members & sales
+      if (newPrice !== undefined) {
+        members.forEach(m => {
+          if (m.package === (newName || oldName)) {
+            m.revenue = newPrice;
+          }
+        });
+
+        memberSales.forEach(s => {
+          if (s.serviceName === (newName || oldName)) {
+            s.total = newPrice;
+            s.paidAmount = newPrice;
+          }
+        });
+      }
+
+      res.json({
+        ...packages[index],
+        cascadeInfo: {
+          updatedMembersCount,
+          updatedSalesCount
+        }
+      });
     } else {
       res.status(404).json({ message: "Không tìm thấy gói tập" });
     }
+  });
+
+  app.post("/api/packages/sync", (req, res) => {
+    let updatedMembersCount = 0;
+    let updatedSalesCount = 0;
+
+    members.forEach(m => {
+      const pkg = packages.find(p => p.name === m.package);
+      if (pkg) {
+        if (m.revenue !== pkg.price) {
+          m.revenue = pkg.price;
+          updatedMembersCount++;
+        }
+      }
+    });
+
+    memberSales.forEach(s => {
+      const pkg = packages.find(p => p.name === s.serviceName);
+      if (pkg) {
+        if (s.total !== pkg.price) {
+          s.total = pkg.price;
+          s.paidAmount = pkg.price;
+          updatedSalesCount++;
+        }
+      }
+    });
+
+    res.json({
+      success: true,
+      message: "Đồng bộ hóa dữ liệu gói tập, hội viên và doanh thu thành công!",
+      stats: {
+        updatedMembersCount,
+        updatedSalesCount
+      }
+    });
   });
 
   app.delete("/api/packages/:id", (req, res) => {
